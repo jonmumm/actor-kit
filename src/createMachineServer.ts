@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { compare } from "fast-json-patch";
 import { SignJWT, jwtVerify } from "jose";
 import type * as Party from "partykit/server";
@@ -357,7 +356,7 @@ export const createMachineServer = <
       const inputJson = JSON.parse(inputJsonString);
 
       const actor = this.#ensureActorRunning({ caller, inputJson });
-      const connectionId = randomUUID();
+      const connectionId = crypto.randomUUID();
       this.callersByConnectionId.set(connectionId, caller);
 
       const { API_AUTH_SECRET } = EnvironmentSchema.parse(this.room.env);

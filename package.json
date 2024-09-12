@@ -1,9 +1,12 @@
 {
   "name": "actor-kit",
-  "version": "0.2.0",
-  "description": "A toolkit for creating actor-based state machines with XState and PartyKit",
+  "version": "0.4.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./server": "./dist/server.js"
+  },
   "files": [
     "dist"
   ],

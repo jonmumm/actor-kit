@@ -19,7 +19,7 @@ pnpm add actor-kit
 Here's an example of how to use Actor Kit to create a todo list application, using the `WithActorKitEvent` helper and inferring event types from Zod schemas:
 
 ```typescript
-import { createMachineServer } from 'actor-kit';
+import { createMachineServer } from 'actor-kit/server';
 import { z } from 'zod';
 import { setup } from 'xstate';
 import type { WithActorKitEvent } from "./lib/actor-kit/types";
@@ -136,9 +136,18 @@ This example demonstrates:
 
 ## API Reference
 
-### `createMachineServer`
+### `actor-kit`
 
-The main function provided by Actor Kit for creating an actor server.
+The main package exports:
+
+- Common types and schemas
+- `createAccessToken`: Function for creating access tokens
+
+### `actor-kit/server`
+
+Exports:
+
+- `createMachineServer`: The main function for creating an actor server.
 
 #### Parameters
 
