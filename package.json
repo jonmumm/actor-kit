@@ -1,0 +1,27 @@
+{
+  "name": "actor-kit",
+  "version": "0.1.0",
+  "description": "A toolkit for creating actor-based state machines with XState and PartyKit",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["xstate", "partykit", "actor", "state-machine"],
+  "author": "jonmumm",
+  "license": "ISC",
+  "dependencies": {
+    "jose": "^5.8.0",
+    "partykit": "^0.0.110",
+    "xstate": "^5.18.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "typescript": "^5.6.2"
+  }
+}
