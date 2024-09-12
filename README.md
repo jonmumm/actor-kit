@@ -49,7 +49,7 @@ type TodoServiceEvent = WithActorKitEvent<z.infer<typeof TodoServiceEventSchema>
 type TodoEvent = TodoClientEvent | TodoServiceEvent;
 
 // Define your state machine
-const createTodoListMachine = ({ id, send, caller }) =>
+const createTodoListMachine = ({ id, send, caller }: CreateMachineProps<z.infer<typeof TodoOutputEventSchema>>) =>
   setup({
     types: {
       context: {} as {
