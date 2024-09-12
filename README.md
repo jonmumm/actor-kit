@@ -285,10 +285,6 @@ Key points about this configuration:
 
 Adjust these fields as needed for your specific project structure and requirements.
 
-# Actor Kit
-
-[... previous content remains the same ...]
-
 ## Setting up App Context and PartySocket
 
 After setting up your server and generating the access token, you'll need to set up the app context and establish a connection using PartySocket. Here's an example of how you might do this:
