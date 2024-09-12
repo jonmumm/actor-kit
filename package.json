@@ -11,13 +11,20 @@
     "build": "tsc",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["xstate", "partykit", "actor", "state-machine"],
+  "keywords": [
+    "xstate",
+    "partykit",
+    "actor",
+    "state-machine"
+  ],
   "author": "jonmumm",
   "license": "ISC",
   "dependencies": {
+    "fast-json-patch": "^3.1.1",
     "jose": "^5.8.0",
     "partykit": "^0.0.110",
     "xstate": "^5.18.1",
+    "xstate-migrate": "^0.0.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
