@@ -19,10 +19,10 @@ pnpm add actor-kit
 Here's an example of how to use Actor Kit to create a todo list application, using the `WithActorKitEvent` helper and inferring event types from Zod schemas:
 
 ```typescript
+import type { WithActorKitEvent } from "actor-kit";
 import { createMachineServer } from 'actor-kit/server';
 import { z } from 'zod';
 import { setup } from 'xstate';
-import type { WithActorKitEvent } from "./lib/actor-kit/types";
 
 // Define your event schemas
 const TodoClientEventSchema = z.discriminatedUnion('type', [
@@ -126,13 +126,85 @@ const TodoListServer = createMachineServer(
 export default TodoListServer;
 ```
 
-This example demonstrates:
+## Using `createAccessToken` in a React App
 
-1. Defining event schemas using Zod
-2. Using the `WithActorKitEvent` helper to create event types that include Actor Kit-specific properties
-3. Inferring event types from the Zod schemas
-4. Creating a state machine that uses these inferred event types
-5. Setting up the server using `createMachineServer`
+To use `createAccessToken` in a React app, you'll typically create the access token on the server-side and then pass it to your React application. Here's an example of how you might use it in a Remix app:
+
+```typescript
+import { assert } from "@/lib/utils";
+import type { PlayerPersistedSnapshot } from "@/server/player.machine";
+import { useLoaderData, useLocation } from "@remix-run/react";
+import { EnvironmentSchema, createAccessToken } from "actor-kit";
+import type { LoaderFunctionArgs } from "partymix";
+import { z } from "zod";
+import { AppContext } from "~/components/app-context";
+
+const ResponseSchema = z.object({
+  connectionId: z.string(),
+  token: z.string(),
+  snapshot: z.custom<PlayerPersistedSnapshot>(),
+});
+
+export const loader = async function ({ context }: LoaderFunctionArgs) {
+  const playerServer = context.lobby.parties["player"];
+  assert(playerServer, "expected playerServer");
+  const playerId = crypto.randomUUID();
+
+  const { API_AUTH_SECRET, API_HOST } = EnvironmentSchema.parse(
+    context.lobby.env
+  );
+
+  const accessToken = await createAccessToken({
+    signingKey: API_AUTH_SECRET,
+    actorId: playerId,
+    callerId: playerId, // This should be dynamically set based on the actual user
+    callerType: "client",
+    type: "player",
+  });
+
+  const input = {};
+  const response = await playerServer
+    .get(`${playerId}?input=${encodeURIComponent(JSON.stringify(input))}`)
+    .fetch({
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  const data = await response.json();
+  const parsedData = ResponseSchema.parse(data);
+  return { ...parsedData, host: API_HOST };
+};
+
+export default function Homepage() {
+  const data = useLoaderData<typeof loader>();
+  const location = useLocation();
+
+  return (
+    <AppContext.Provider
+      input={{
+        userId: data.connectionId,
+        connectionId: data.connectionId,
+        connectionToken: data.token,
+        host: data.host,
+        url: location.pathname + location.search,
+        initialSnapshot: data.snapshot as PlayerPersistedSnapshot,
+      }}
+    >
+      {/* Your app components go here */}
+    </AppContext.Provider>
+  );
+}
+```
+
+In this example:
+
+1. We use `createAccessToken` in the loader function to generate an access token for the client.
+2. The access token is created with the necessary parameters, including the `signingKey`, `actorId`, `callerId`, `callerType`, and `type`.
+3. We use this access token to make an authenticated request to the player server.
+4. The response, including the access token, is passed to the React component via `useLoaderData`.
+5. In the React component, we use the `AppContext.Provider` to make the access token and other necessary data available to child components.
+
+This setup allows your React components to interact with the Actor Kit server using the provided access token, ensuring secure and authenticated communication.
 
 ## API Reference
 
