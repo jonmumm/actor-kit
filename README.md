@@ -128,11 +128,11 @@ export default TodoListServer;
 
 ## Using `createAccessToken` in a React App
 
-To use `createAccessToken` in a React app, you'll typically create the access token on the server-side and then pass it to your React application. Here's an example of how you might use it in a Remix app:
+To use `createAccessToken` in a React app, you'll typically create the access token on the server-side and then pass it to your React application. Here's an example of how you might use it in a Remix app for our todo list application:
 
 ```typescript
 import { assert } from "@/lib/utils";
-import type { PlayerPersistedSnapshot } from "@/server/player.machine";
+import type { TodoPersistedSnapshot } from "@/server/todo.machine";
 import { useLoaderData, useLocation } from "@remix-run/react";
 import { EnvironmentSchema, createAccessToken } from "actor-kit";
 import type { LoaderFunctionArgs } from "partymix";
@@ -142,13 +142,13 @@ import { AppContext } from "~/components/app-context";
 const ResponseSchema = z.object({
   connectionId: z.string(),
   token: z.string(),
-  snapshot: z.custom<PlayerPersistedSnapshot>(),
+  snapshot: z.custom<TodoPersistedSnapshot>(),
 });
 
 export const loader = async function ({ context }: LoaderFunctionArgs) {
-  const playerServer = context.lobby.parties["player"];
-  assert(playerServer, "expected playerServer");
-  const playerId = crypto.randomUUID();
+  const todoServer = context.lobby.parties["todo"];
+  assert(todoServer, "expected todoServer");
+  const userId = crypto.randomUUID();
 
   const { API_AUTH_SECRET, API_HOST } = EnvironmentSchema.parse(
     context.lobby.env
@@ -156,15 +156,15 @@ export const loader = async function ({ context }: LoaderFunctionArgs) {
 
   const accessToken = await createAccessToken({
     signingKey: API_AUTH_SECRET,
-    actorId: playerId,
-    callerId: playerId, // This should be dynamically set based on the actual user
+    actorId: userId,
+    callerId: userId, // This should be dynamically set based on the actual user
     callerType: "client",
-    type: "player",
+    type: "todo",
   });
 
   const input = {};
-  const response = await playerServer
-    .get(`${playerId}?input=${encodeURIComponent(JSON.stringify(input))}`)
+  const response = await todoServer
+    .get(`${userId}?input=${encodeURIComponent(JSON.stringify(input))}`)
     .fetch({
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -175,7 +175,7 @@ export const loader = async function ({ context }: LoaderFunctionArgs) {
   return { ...parsedData, host: API_HOST };
 };
 
-export default function Homepage() {
+export default function TodoApp() {
   const data = useLoaderData<typeof loader>();
   const location = useLocation();
 
@@ -187,10 +187,10 @@ export default function Homepage() {
         connectionToken: data.token,
         host: data.host,
         url: location.pathname + location.search,
-        initialSnapshot: data.snapshot as PlayerPersistedSnapshot,
+        initialSnapshot: data.snapshot as TodoPersistedSnapshot,
       }}
     >
-      {/* Your app components go here */}
+      {/* Your todo app components go here */}
     </AppContext.Provider>
   );
 }
@@ -200,11 +200,11 @@ In this example:
 
 1. We use `createAccessToken` in the loader function to generate an access token for the client.
 2. The access token is created with the necessary parameters, including the `signingKey`, `actorId`, `callerId`, `callerType`, and `type`.
-3. We use this access token to make an authenticated request to the player server.
+3. We use this access token to make an authenticated request to the todo server.
 4. The response, including the access token, is passed to the React component via `useLoaderData`.
 5. In the React component, we use the `AppContext.Provider` to make the access token and other necessary data available to child components.
 
-This setup allows your React components to interact with the Actor Kit server using the provided access token, ensuring secure and authenticated communication.
+This setup allows your React components to interact with the Actor Kit server using the provided access token, ensuring secure and authenticated communication for your todo list application.
 
 ## API Reference
 
@@ -265,11 +265,11 @@ To use Actor Kit with PartyKit, create a `partykit.json` file in your project ro
 ```json
 {
   "$schema": "https://www.partykit.io/schema.json",
-  "name": "playitlive",
+  "name": "todo-list",
   "main": "build/index.js",
   "compatibilityDate": "2023-12-22",
   "parties": {
-    "player": "server/player.server.ts"
+    "todo": "server/todo.server.ts"
   },
   "serve": "public"
 }
@@ -277,10 +277,301 @@ To use Actor Kit with PartyKit, create a `partykit.json` file in your project ro
 
 Key points about this configuration:
 
-- `name`: Set this to your project name (e.g., "playitlive").
+- `name`: Set this to your project name (e.g., "todo-list").
 - `main`: Points to the built JavaScript file (e.g., "build/index.js").
 - `compatibilityDate`: Specifies the PartyKit compatibility date.
-- `parties`: Defines the entry points for your party servers. In this example, "player" is set to "server/player.server.ts".
+- `parties`: Defines the entry points for your party servers. In this example, "todo" is set to "server/todo.server.ts".
 - `serve`: Specifies the directory to serve static files from (e.g., "public").
 
 Adjust these fields as needed for your specific project structure and requirements.
+
+# Actor Kit
+
+[... previous content remains the same ...]
+
+## Setting up App Context and PartySocket
+
+After setting up your server and generating the access token, you'll need to set up the app context and establish a connection using PartySocket. Here's an example of how you might do this:
+
+### App Context Setup
+
+First, let's create an `AppContext` that will manage the state and connection for our todo list application:
+
+```typescript
+// app-context.tsx
+import { atom } from "nanostores";
+import type { ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useState } from "react";
+import { useSyncExternalStoreWithSelector } from "use-sync-external-store/shim/with-selector";
+import { createActor } from "xstate";
+import type { AppActor, AppSnapshot } from "~/state/app-machine";
+import { createAppMachine } from "~/state/app-machine";
+import { event$ } from "~/state/event";
+
+export const AppContext = (() => {
+  const started$ = atom(false);
+  const Provider = ({
+    input,
+    children,
+  }: {
+    input: {
+      userId: string;
+      connectionId: string;
+      connectionToken: string;
+      url: string;
+      initialSnapshot: TodoPersistedSnapshot;
+      host: string;
+    };
+    children: ReactNode;
+  }) => {
+    const [machine] = useState(createAppMachine());
+    const [actor] = useState(createActor(machine, { input }));
+    useLayoutEffect(() => {
+      if (!started$.get()) {
+        started$.set(true);
+        actor.start();
+        event$.subscribe((event) => {
+          event && actor.send(event);
+        });
+      }
+    }, [actor]);
+
+    return (
+      <InnerContext.Provider value={actor}>
+        {children}
+      </InnerContext.Provider>
+    );
+  };
+
+  const useSelector = <T,>(selector: (snapshot: AppSnapshot) => T) => {
+    const actor = useContext(InnerContext);
+    const subscribe = (onStoreChange: () => void) => {
+      const { unsubscribe } = actor.subscribe(onStoreChange);
+      return unsubscribe;
+    };
+    const getSnapshot = () => actor.getSnapshot();
+    const selectedSnapshot = useSyncExternalStoreWithSelector(
+      subscribe,
+      getSnapshot,
+      getSnapshot,
+      selector,
+      (a, b) => a === b
+    );
+    return selectedSnapshot;
+  };
+
+  return {
+    Provider,
+    useActorRef: () => useContext(InnerContext),
+    useSelector,
+  };
+})();
+
+const InnerContext = createContext({} as AppActor);
+```
+
+### PartySocket Connection
+
+Next, let's set up the PartySocket connection within our app machine:
+
+```typescript
+// app-machine.ts
+import { fromCallback, sendTo, setup } from "xstate";
+import { z } from "zod";
+import { TodoClientEventSchema } from "@/schemas";
+import type { TodoPersistedSnapshot } from "@/server/todo.machine";
+import type { TodoClientEventProps } from "@/types";
+import PartySocket from "partysocket";
+
+export type AppEvent = TodoClientEventProps;
+
+const AppContextSchema = z.object({
+  userId: z.string(),
+  connectionId: z.string(),
+  connectionToken: z.string(),
+  url: z.string(),
+  host: z.string(),
+  todoSnapshot: z.custom<TodoPersistedSnapshot>(),
+});
+export type AppContext = z.infer<typeof AppContextSchema>;
+
+export const createAppMachine = () =>
+  setup({
+    actors: {
+      connectToServer: fromCallback(
+        ({
+          input,
+          sendBack,
+          receive,
+        }: {
+          input: {
+            userId: string;
+            host: string;
+            connectionId: string;
+            connectionToken: string;
+            url: string;
+          };
+          sendBack: (event: AppEvent) => void;
+          receive: (listener: (event: AppEvent) => void) => void;
+        }) => {
+          const socket = new PartySocket({
+            host: input.host,
+            party: "todo",
+            room: input.userId,
+            id: input.connectionId,
+            query: { token: input.connectionToken },
+          });
+
+          receive((event) => {
+            socket.send(JSON.stringify(event));
+          });
+
+          socket.addEventListener("message", (message: MessageEvent<string>) => {
+            const event = JSON.parse(message.data);
+            if (TodoClientEventSchema.safeParse(event).success) {
+              sendBack(event);
+            }
+          });
+
+          return () => {
+            socket.close();
+          };
+        }
+      ),
+    },
+    types: {
+      events: {} as AppEvent,
+      context: {} as AppContext,
+      input: {} as {
+        userId: string;
+        host: string;
+        connectionId: string;
+        connectionToken: string;
+        url: string;
+        initialSnapshot: TodoPersistedSnapshot;
+      },
+    },
+  }).createMachine({
+    id: "AppMachine",
+    type: "parallel",
+    context: ({ input }) => ({
+      userId: input.userId,
+      connectionId: input.connectionId,
+      connectionToken: input.connectionToken,
+      url: input.url,
+      host: input.host,
+      todoSnapshot: input.initialSnapshot,
+    }),
+    states: {
+      Server: {
+        initial: "Connecting",
+        states: {
+          Connecting: {
+            invoke: {
+              id: "serverConnection",
+              src: "connectToServer",
+              input: ({ context }) => ({
+                userId: context.userId,
+                host: context.host,
+                connectionId: context.connectionId,
+                connectionToken: context.connectionToken,
+                url: context.url,
+              }),
+              onDone: "Connected",
+              onError: "ConnectionFailed",
+            },
+          },
+          Connected: {
+            on: {
+              "*": {
+                actions: sendTo("serverConnection", ({ event }) => event),
+              },
+            },
+          },
+          ConnectionFailed: {
+            after: {
+              5000: "Connecting",
+            },
+          },
+        },
+      },
+    },
+  });
+
+export type AppMachine = ReturnType<typeof createAppMachine>;
+export type AppSnapshot = SnapshotFrom<AppMachine>;
+export type AppActor = Actor<AppMachine>;
+```
+
+### Using the App Context in Components
+
+Finally, here's how you might use the `AppContext` in your components:
+
+```typescript
+// TodoList.tsx
+import { AppContext } from "~/components/app-context";
+
+export function TodoList() {
+  const todos = AppContext.useSelector((state) => state.context.todoSnapshot.todos);
+  const actor = AppContext.useActorRef();
+
+  const addTodo = (text: string) => {
+    actor.send({ type: "ADD_TODO", text });
+  };
+
+  const toggleTodo = (id: string) => {
+    actor.send({ type: "TOGGLE_TODO", id });
+  };
+
+  const removeTodo = (id: string) => {
+    actor.send({ type: "REMOVE_TODO", id });
+  };
+
+  return (
+    <div>
+      {/* Render your todo list here */}
+      {todos.map((todo) => (
+        <div key={todo.id}>
+          <span>{todo.text}</span>
+          <button onClick={() => toggleTodo(todo.id)}>
+            {todo.completed ? "Mark Incomplete" : "Mark Complete"}
+          </button>
+          <button onClick={() => removeTodo(todo.id)}>Remove</button>
+        </div>
+      ))}
+      {/* Add a form to add new todos */}
+    </div>
+  );
+}
+```
+
+This setup allows you to:
+
+1. Manage your application state using XState.
+2. Establish a real-time connection with your server using PartySocket.
+3. Provide a consistent way to access and update your todo list state across your application.
+
+Remember to wrap your main application component with the `AppContext.Provider` as shown in the earlier example:
+
+```typescript
+export default function TodoApp() {
+  const data = useLoaderData<typeof loader>();
+  const location = useLocation();
+
+  return (
+    <AppContext.Provider
+      input={{
+        userId: data.connectionId,
+        connectionId: data.connectionId,
+        connectionToken: data.token,
+        host: data.host,
+        url: location.pathname + location.search,
+        initialSnapshot: data.snapshot as TodoPersistedSnapshot,
+      }}
+    >
+      <TodoList />
+      {/* Other components */}
+    </AppContext.Provider>
+  );
+}
+```
