@@ -1,6 +1,8 @@
 // Main functionality
 export { createMachineServer } from "./createMachineServer";
 
+export { createAccessToken } from "./utils/auth";
+
 // Types
 export type {
   ActorKitStateMachine,
