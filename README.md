@@ -35,12 +35,6 @@ const TodoServiceEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('SYNC_TODOS'), todos: z.array(z.object({ id: z.string(), text: z.string(), completed: z.boolean() })) }),
 ]);
 
-const TodoOutputEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('TODO_ADDED'), todo: z.object({ id: z.string(), text: z.string(), completed: z.boolean() }) }),
-  z.object({ type: z.literal('TODO_TOGGLED'), id: z.string(), completed: z.boolean() }),
-  z.object({ type: z.literal('TODO_REMOVED'), id: z.string() }),
-]);
-
 // Infer event types using WithActorKitEvent
 type TodoClientEvent = WithActorKitEvent<z.infer<typeof TodoClientEventSchema>, "client">;
 type TodoServiceEvent = WithActorKitEvent<z.infer<typeof TodoServiceEventSchema>, "service">;
@@ -49,7 +43,7 @@ type TodoServiceEvent = WithActorKitEvent<z.infer<typeof TodoServiceEventSchema>
 type TodoEvent = TodoClientEvent | TodoServiceEvent;
 
 // Define your state machine
-const createTodoListMachine = ({ id, send, caller }: CreateMachineProps<z.infer<typeof TodoOutputEventSchema>>) =>
+const createTodoListMachine = ({ id, send, caller }: CreateMachineProps) =>
   setup({
     types: {
       context: {} as {
@@ -57,6 +51,14 @@ const createTodoListMachine = ({ id, send, caller }: CreateMachineProps<z.infer<
           todos: Array<{ id: string; text: string; completed: boolean }>;
           lastSync: Date | null;
         };
+        private: {
+          lastAccessTime?: Date;
+          userPreferences?: {
+            theme: 'light' | 'dark';
+            sortOrder: 'asc' | 'desc';
+          };
+        };
+        // Other properties that won't be synced
         history: Array<{ type: string; sentAt: number; [key: string]: any }>;
       },
       events: {} as TodoEvent,
@@ -84,6 +86,11 @@ const createTodoListMachine = ({ id, send, caller }: CreateMachineProps<z.infer<
           context.history.push({ type: 'TODO_REMOVED', id: event.id, sentAt: Date.now() });
         }
       },
+      updatePrivateData: ({ context, event }) => {
+        if (event.caller.type === "client") {
+          context.private.lastAccessTime = new Date();
+        }
+      },
     },
   }).createMachine({
     id: `todo-list-${id}`,
@@ -92,6 +99,7 @@ const createTodoListMachine = ({ id, send, caller }: CreateMachineProps<z.infer<
         todos: [],
         lastSync: null,
       },
+      private: {},
       history: [],
     },
     type: 'parallel',
@@ -104,9 +112,9 @@ const createTodoListMachine = ({ id, send, caller }: CreateMachineProps<z.infer<
       },
       TodoList: {
         on: {
-          ADD_TODO: { actions: ['addTodo'] },
-          TOGGLE_TODO: { actions: ['toggleTodo'] },
-          REMOVE_TODO: { actions: ['removeTodo'] },
+          ADD_TODO: { actions: ['addTodo', 'updatePrivateData'] },
+          TOGGLE_TODO: { actions: ['toggleTodo', 'updatePrivateData'] },
+          REMOVE_TODO: { actions: ['removeTodo', 'updatePrivateData'] },
         },
       },
     },
@@ -118,102 +126,16 @@ const TodoListServer = createMachineServer(
   {
     client: TodoClientEventSchema,
     service: TodoServiceEventSchema,
-    output: TodoOutputEventSchema,
   },
-  { persisted: true }
+  { 
+    persisted: true,
+  }
 );
 
 export default TodoListServer;
 ```
 
-## Using `createAccessToken` in a React App
-
-To use `createAccessToken` in a React app, you'll typically create the access token on the server-side and then pass it to your React application. Here's an example of how you might use it in a Remix app for our todo list application:
-
-```typescript
-import { assert } from "@/lib/utils";
-import type { TodoPersistedSnapshot } from "@/server/todo.machine";
-import { useLoaderData, useLocation } from "@remix-run/react";
-import { EnvironmentSchema, createAccessToken } from "actor-kit";
-import type { LoaderFunctionArgs } from "partymix";
-import { z } from "zod";
-import { AppContext } from "~/components/app-context";
-
-const ResponseSchema = z.object({
-  connectionId: z.string(),
-  token: z.string(),
-  snapshot: z.custom<TodoPersistedSnapshot>(),
-});
-
-export const loader = async function ({ context }: LoaderFunctionArgs) {
-  const todoServer = context.lobby.parties["todo"];
-  assert(todoServer, "expected todoServer");
-  const userId = crypto.randomUUID();
-
-  const { API_AUTH_SECRET, API_HOST } = EnvironmentSchema.parse(
-    context.lobby.env
-  );
-
-  const accessToken = await createAccessToken({
-    signingKey: API_AUTH_SECRET,
-    actorId: userId,
-    callerId: userId, // This should be dynamically set based on the actual user
-    callerType: "client",
-    type: "todo",
-  });
-
-  const input = {};
-  const response = await todoServer
-    .get(`${userId}?input=${encodeURIComponent(JSON.stringify(input))}`)
-    .fetch({
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-  const data = await response.json();
-  const parsedData = ResponseSchema.parse(data);
-  return { ...parsedData, host: API_HOST };
-};
-
-export default function TodoApp() {
-  const data = useLoaderData<typeof loader>();
-  const location = useLocation();
-
-  return (
-    <AppContext.Provider
-      input={{
-        userId: data.connectionId,
-        connectionId: data.connectionId,
-        connectionToken: data.token,
-        host: data.host,
-        url: location.pathname + location.search,
-        initialSnapshot: data.snapshot as TodoPersistedSnapshot,
-      }}
-    >
-      {/* Your todo app components go here */}
-    </AppContext.Provider>
-  );
-}
-```
-
-In this example:
-
-1. We use `createAccessToken` in the loader function to generate an access token for the client.
-2. The access token is created with the necessary parameters, including the `signingKey`, `actorId`, `callerId`, `callerType`, and `type`.
-3. We use this access token to make an authenticated request to the todo server.
-4. The response, including the access token, is passed to the React component via `useLoaderData`.
-5. In the React component, we use the `AppContext.Provider` to make the access token and other necessary data available to child components.
-
-This setup allows your React components to interact with the Actor Kit server using the provided access token, ensuring secure and authenticated communication for your todo list application.
-
 ## API Reference
-
-### `actor-kit`
-
-The main package exports:
-
-- Common types and schemas
-- `createAccessToken`: Function for creating access tokens
 
 ### `actor-kit/server`
 
@@ -228,13 +150,73 @@ Exports:
 2. `eventSchemas`: An object containing Zod schemas for different event types:
    - `client`: Schema for events from end-users or client applications
    - `service`: Schema for events from trusted services or internal microservices
-   - `output`: Schema for output events broadcast to connected clients
 3. `options`: (Optional) Additional options for the server:
    - `persisted`: Boolean indicating whether the actor's state should be persisted (default: false)
 
 #### Returns
 
 An `ActorServer` class that implements the `Party.Server` interface.
+
+## Public and Private Data
+
+Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information.
+
+### Defining Public and Private Data
+
+In your state machine, define the public and private data as part of the context:
+
+```typescript
+setup({
+  types: {
+    context: {} as {
+      public: {
+        // Data shared across all clients
+        todos: Array<{ id: string; text: string; completed: boolean }>;
+        lastSync: Date | null;
+      },
+      private: {
+        // Caller-specific data
+        lastAccessTime?: Date;
+        userPreferences?: {
+          theme: 'light' | 'dark';
+          sortOrder: 'asc' | 'desc';
+        };
+      },
+      // Other properties that won't be synced
+      history: Array<{ type: string; sentAt: number; [key: string]: any }>;
+    },
+    // ... other type definitions
+  },
+  // ... rest of the machine definition
+})
+```
+
+### Accessing and Updating Data
+
+You can access and update public and private data in your machine's actions and guards:
+
+```typescript
+actions: {
+  updatePublicData: ({ context, event }) => {
+    if (event.type === 'ADD_TODO') {
+      context.public.todos.push({
+        id: Date.now().toString(),
+        text: event.text,
+        completed: false
+      });
+    }
+  },
+  updatePrivateData: ({ context, event }) => {
+    if (event.caller.type === "client") {
+      context.private.lastAccessTime = new Date();
+    }
+  },
+},
+```
+
+### Persistent vs Synced Snapshots
+
+In the persistent snapshot, both `public` and `private` data are stored in the `context`. In the synced snapshot (what clients receive), `public` data is shared across all clients, while `private` data is limited to the matching caller. All other context keys (like `history` in the example) are excluded when syncing.
 
 ### `WithActorKitEvent<TEvent, TCallerType>`
 
@@ -254,9 +236,9 @@ A type helper that wraps an event type with Actor Kit-specific properties.
 
 Actor Kit supports different types of callers:
 
-- `CLIENT`: Events from end-users or client applications
-- `SYSTEM`: Internal events generated by the actor system (handled internally)
-- `SERVICE`: Events from trusted external services or internal microservices
+- `client`: Events from end-users or client applications
+- `system`: Internal events generated by the actor system (handled internally)
+- `service`: Events from trusted external services or internal microservices
 
 ## PartyKit Integration
 
@@ -275,13 +257,9 @@ To use Actor Kit with PartyKit, create a `partykit.json` file in your project ro
 }
 ```
 
-Key points about this configuration:
+Key point about this configuration:
 
-- `name`: Set this to your project name (e.g., "todo-list").
-- `main`: Points to the built JavaScript file (e.g., "build/index.js").
-- `compatibilityDate`: Specifies the PartyKit compatibility date.
 - `parties`: Defines the entry points for your party servers. In this example, "todo" is set to "server/todo.server.ts".
-- `serve`: Specifies the directory to serve static files from (e.g., "public").
 
 Adjust these fields as needed for your specific project structure and requirements.
 
