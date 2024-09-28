@@ -1,133 +1,109 @@
 # Actor Kit
 
-Actor Kit is a library for creating and managing actor-based state machines in server environments. It provides a framework for handling different types of events from various sources and manages the lifecycle of actors.
+Actor Kit is a library for creating and managing actor-based state machines (via XState) in Cloudflare Workers. It provides a framework for handling different types of events from various sources and manages the lifecycle of actors.
 
 ## Installation
 
 To install Actor Kit, use your preferred package manager:
 
 ```bash
-npm install actor-kit
+npm install actor-kit xstate zod partykit
 # or
-yarn add actor-kit
+yarn add actor-kit xstate zod partykit
 # or
-pnpm add actor-kit
+pnpm add actor-kit xstate zod partykit
 ```
 
 ## Usage
 
-Here's an example of how to use Actor Kit to create a todo list application, using the `WithActorKitEvent` helper and inferring event types from Zod schemas:
+Here's a barebones example of how to use Actor Kit to create a todo list application with Next.js, fetching data server-side.
+
+### Actor Server State Machine Setup
+
+Setup your actor by defining events, context shape, and state machine logic.
 
 ```typescript
-import type { WithActorKitEvent } from "actor-kit";
-import { createMachineServer } from 'actor-kit/server';
-import { z } from 'zod';
-import { setup } from 'xstate';
+// file: src/server/todo.actor.ts
+import { setup } from "xstate";
+import { createMachineServer } from "actor-kit/server";
+import { createActorFetch } from "actor-kit/fetch";
+import { z } from "zod";
 
-// Define your event schemas
-const TodoClientEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('ADD_TODO'), text: z.string() }),
-  z.object({ type: z.literal('TOGGLE_TODO'), id: z.string() }),
-  z.object({ type: z.literal('REMOVE_TODO'), id: z.string() }),
+// Define event schemas
+const TodoClientEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
+  z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
+  z.object({ type: z.literal("DELETE_TODO"), id: z.string() }),
 ]);
 
-const TodoServiceEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('SYNC_TODOS'), todos: z.array(z.object({ id: z.string(), text: z.string(), completed: z.boolean() })) }),
+const TodoServiceEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("SYNC_TODOS"),
+    todos: z.array(
+      z.object({ id: z.string(), text: z.string(), completed: z.boolean() })
+    ),
+  }),
 ]);
 
-// Infer event types using WithActorKitEvent
-type TodoClientEvent = WithActorKitEvent<z.infer<typeof TodoClientEventSchema>, "client">;
-type TodoServiceEvent = WithActorKitEvent<z.infer<typeof TodoServiceEventSchema>, "service">;
-
-// Combine event types
-type TodoEvent = TodoClientEvent | TodoServiceEvent;
-
-// Define your state machine
-const createTodoListMachine = ({ id, send, caller }: CreateMachineProps) =>
-  setup({
-    types: {
-      context: {} as {
-        public: {
-          todos: Array<{ id: string; text: string; completed: boolean }>;
-          lastSync: Date | null;
-        };
-        private: {
+// Define the state machine
+export const createTodoListMachine = setup({
+  types: {
+    context: {} as {
+      public: {
+        todos: Array<{ id: string; text: string; completed: boolean }>;
+        lastSync: Date | null;
+      };
+      private: Record<
+        string,
+        {
           lastAccessTime?: Date;
           userPreferences?: {
-            theme: 'light' | 'dark';
-            sortOrder: 'asc' | 'desc';
+            theme: "light" | "dark";
+            sortOrder: "asc" | "desc";
           };
-        };
-        // Other properties that won't be synced
-        history: Array<{ type: string; sentAt: number; [key: string]: any }>;
-      },
-      events: {} as TodoEvent,
-    },
-    actions: {
-      addTodo: ({ context, event }) => {
-        if (event.type === 'ADD_TODO') {
-          const newTodo = { id: Date.now().toString(), text: event.text, completed: false };
-          context.public.todos.push(newTodo);
-          context.history.push({ type: 'TODO_ADDED', todo: newTodo, sentAt: Date.now() });
         }
-      },
-      toggleTodo: ({ context, event }) => {
-        if (event.type === 'TOGGLE_TODO') {
-          const todo = context.public.todos.find(t => t.id === event.id);
-          if (todo) {
-            todo.completed = !todo.completed;
-            context.history.push({ type: 'TODO_TOGGLED', id: todo.id, completed: todo.completed, sentAt: Date.now() });
-          }
-        }
-      },
-      removeTodo: ({ context, event }) => {
-        if (event.type === 'REMOVE_TODO') {
-          context.public.todos = context.public.todos.filter(t => t.id !== event.id);
-          context.history.push({ type: 'TODO_REMOVED', id: event.id, sentAt: Date.now() });
-        }
-      },
-      updatePrivateData: ({ context, event }) => {
-        if (event.caller.type === "client") {
-          context.private.lastAccessTime = new Date();
-        }
-      },
+      >;
     },
-  }).createMachine({
-    id: `todo-list-${id}`,
-    context: {
-      public: {
-        todos: [],
-        lastSync: null,
-      },
-      private: {},
-      history: [],
-    },
-    type: 'parallel',
-    states: {
-      Initialization: {
-        initial: 'Ready',
-        states: {
-          Ready: {},
-        },
-      },
-      TodoList: {
-        on: {
-          ADD_TODO: { actions: ['addTodo', 'updatePrivateData'] },
-          TOGGLE_TODO: { actions: ['toggleTodo', 'updatePrivateData'] },
-          REMOVE_TODO: { actions: ['removeTodo', 'updatePrivateData'] },
-        },
-      },
-    },
-  });
+    events: {} as TodoClientEvent | TodoServiceEvent,
+  },
+}).createMachine({
+  // ... machine configuration
+});
 
-// Create your actor server
+// Create your actor server from the machine and event schemas
+export const TodoListServer = createMachineServer(
+  createTodoListMachine,
+  {
+    client: TodoClientEventSchema,
+    service: TodoServiceEventSchema,
+  },
+  {
+    persisted: true,
+  }
+);
+
+const TodoMachine = ReturnType<typeof createTodoListMachine>;
+export const fetchTodoActor = createActorFetch<TodoMachine>("todo");
+```
+
+Create a file to export the server.
+
+```typescript
+// file: src/server/todo.server.ts
+import { createMachineServer } from "actor-kit/server";
+import {
+  createTodoListMachine,
+  TodoClientEventSchema,
+  TodoServiceEventSchema,
+} from "./todo.actor";
+
 const TodoListServer = createMachineServer(
   createTodoListMachine,
   {
     client: TodoClientEventSchema,
     service: TodoServiceEventSchema,
   },
-  { 
+  {
     persisted: true,
   }
 );
@@ -135,27 +111,169 @@ const TodoListServer = createMachineServer(
 export default TodoListServer;
 ```
 
+### PartyKit Configuration
+
+Actor Kit is built on top of PartyKit, so you need to configure your project to use PartyKit. Create a `partykit.json` file in the root of your project with the following content:
+
+```json
+{
+  "name": "your-project-name",
+  "parties": {
+    "todo": "src/server/todo.server.ts"
+  },
+}
+```
+
+For more information on PartyKit configuration, refer to the [PartyKit documentation](https://docs.partykit.io/reference/partykit-json/).
+
+### Server-side Data Fetching
+
+In your web server, use the `fetchTodoActor` function you created above to fetch the current snapshot and initialize a connection to the server. Server components pass this initial data down to the client to connect to the actor and listens for changes.
+
+```typescript
+// app/todo/[id]/page.tsx
+import { fetchTodoActor } from "../server/todo.actor";
+import { createActorKitContext } from "actor-kit/react";
+import TodoClient from "./TodoClient";
+import { getUserId } from "../my-auth-system";
+
+const TodoActorKitContext = createActorKitContext<TodoClientEvent, TodoSnapshot>();
+
+export default async function TodoPage({ params }: { params: { id: string } }) {
+  const userId = getUserId(); // Get the user ID from your authentication system
+  const { snapshot, connectionId, connectionToken } = await fetchTodoActor({
+    id: params.id,
+    callerId: userId,
+  });
+
+  return (
+    <TodoActorKitContext.Provider
+      options={{
+        host: process.env.ACTOR_KIT_HOST!,
+        actorType: "todo",
+        actorId: params.id,
+        connectionId,
+        connectionToken,
+        initialState: snapshot,
+      }}
+    >
+      <TodoList />
+    </TodoActorKitContext.Provider>
+  );
+}
+
+function TodoList() {
+  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
+  const send = TodoActorKitContext.useSend();
+
+  // Implement your todo list UI here
+  return (
+    <ul>
+      {todos.map((todo) => (
+        <li key={todo.id}>
+          {todo.text}
+          <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+            {todo.completed ? "Undo" : "Complete"}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+Make sure to set the appropriate environment variables (`ACTOR_KIT_HOST`, `ACTOR_KIT_SECRET`) in your Next.js app.
+
 ## API Reference
+
+### `actor-kit/fetch`
+
+#### `createActorFetch<TMachine>(actorType)`
+
+Creates a function for fetching actor data. Used in a trusted server environment.
+
+- `TMachine`: Type parameter representing the state machine type.
+- `actorType`: String identifier for the actor type.
+
+Returns a function `(props: object) => Promise<{ snapshot: CallerSnapshot, connectionId: string, connectionToken: string }>` that fetches a snapshot of the actor data.
+
+The returned fetch function takes the following props:
+
+- `id`: ID of the actor to fetch
+- `callerId`: ID of the caller (typically a user id or identifier for a service)
+- `host`: (Optional) Override the default Actor Kit host (default: process.env.ACTOR_KIT_HOST)
+- `signingKey`: (Optional) Override the default Actor Kit signing key (default: process.env.ACTOR_KIT_SECRET)
 
 ### `actor-kit/server`
 
-Exports:
+#### `createMachineServer(createMachine, eventSchemas, options?)`
 
-- `createMachineServer`: The main function for creating an actor server.
+Creates an actor server for use with PartyKit.
 
-#### Parameters
+- `createMachine`: Function that creates the state machine.
+- `eventSchemas`: Object containing Zod schemas for different event types.
+  - `client`: Schema for events from clients
+  - `service`: Schema for events from services
+- `options`: (Optional) Additional options for the server.
+  - `persisted`: Whether to persist the actor state (default: false)
 
-1. `createMachine`: A function that creates the state machine.
-   - Receives `props` of type `CreateMachineProps`
-2. `eventSchemas`: An object containing Zod schemas for different event types:
-   - `client`: Schema for events from end-users or client applications
-   - `service`: Schema for events from trusted services or internal microservices
-3. `options`: (Optional) Additional options for the server:
-   - `persisted`: Boolean indicating whether the actor's state should be persisted (default: false)
+Returns an `ActorServer` class implementing the `Party.Server` interface.
 
-#### Returns
+### `actor-kit/browser`
 
-An `ActorServer` class that implements the `Party.Server` interface.
+#### `createActorKitClient<TClientEvent, TSnapshot>(options)`
+
+Creates an Actor Kit client for managing state and communication with the server.
+
+- `options`: Configuration options for the client.
+  - `host: string`: Hostname of the PartyKit server.
+  - `actorType: string`: Type of the actor (e.g., "todo", "player").
+  - `actorId: string`: Unique identifier for the specific actor instance.
+  - `connectionId: string`: Unique identifier for the client connection.
+  - `connectionToken: string`: Authentication token for the connection.
+  - `initialState: TSnapshot`: Initial client state.
+  - `onStateChange?: (newState: TSnapshot) => void`: Optional state change callback.
+  - `onError?: (error: Error) => void`: Optional error handler.
+
+Returns an `ActorKitClient<TClientEvent, TSnapshot>` object with methods:
+
+- `connect(): Promise<void>`: Establishes a WebSocket connection to the server.
+- `disconnect(): void`: Closes the WebSocket connection.
+- `send(event: TClientEvent): void`: Sends an event to the server.
+- `getState(): TSnapshot`: Returns the current state.
+- `subscribe(listener: (state: TSnapshot) => void): () => void`: Subscribes to state changes.
+
+### `actor-kit/react`
+
+#### `createActorKitContext<TClientEvent, TSnapshot>()`
+
+Creates a React context for Actor Kit integration.
+
+Returns an object with:
+
+- `Provider`: React component to provide the Actor Kit client.
+- `useClient()`: Hook to access the Actor Kit client directly.
+- `useSelector(selector)`: Hook to select and subscribe to state only when it changes.
+- `useSend()`: Hook to get a function for sending events to the Actor Kit client.
+
+## Types
+
+The following types are exported from the main `actor-kit` package:
+
+### `WithActorKitEvent<TEvent, TCallerType>`
+
+Utility type that wraps an event type with Actor Kit-specific properties.
+
+- `TEvent`: Base event type.
+- `TCallerType`: Type of caller ("client" or "service").
+
+### `CallerSnapshotFrom<TMachine>`
+
+Utility type to extract the caller-specific snapshot from a machine type.
+
+### `ActorKitStateMachine`
+
+Type definition for an Actor Kit state machine, extending XState's `StateMachine` type. Requires `public` and `private` to be specified in the `context`.
 
 ## Public and Private Data
 
@@ -173,64 +291,25 @@ setup({
         // Data shared across all clients
         todos: Array<{ id: string; text: string; completed: boolean }>;
         lastSync: Date | null;
-      },
-      private: {
+      };
+      private: {} as Record<string, {
         // Caller-specific data
         lastAccessTime?: Date;
         userPreferences?: {
-          theme: 'light' | 'dark';
-          sortOrder: 'asc' | 'desc';
+          theme: "light" | "dark";
+          sortOrder: "asc" | "desc";
         };
-      },
-      // Other properties that won't be synced
-      history: Array<{ type: string; sentAt: number; [key: string]: any }>;
+      }>;
     },
     // ... other type definitions
   },
   // ... rest of the machine definition
-})
-```
-
-### Accessing and Updating Data
-
-You can access and update public and private data in your machine's actions and guards:
-
-```typescript
-actions: {
-  updatePublicData: ({ context, event }) => {
-    if (event.type === 'ADD_TODO') {
-      context.public.todos.push({
-        id: Date.now().toString(),
-        text: event.text,
-        completed: false
-      });
-    }
-  },
-  updatePrivateData: ({ context, event }) => {
-    if (event.caller.type === "client") {
-      context.private.lastAccessTime = new Date();
-    }
-  },
-},
+});
 ```
 
 ### Persistent vs Synced Snapshots
 
 In the persistent snapshot, both `public` and `private` data are stored in the `context`. In the synced snapshot (what clients receive), `public` data is shared across all clients, while `private` data is limited to the matching caller. All other context keys (like `history` in the example) are excluded when syncing.
-
-### `WithActorKitEvent<TEvent, TCallerType>`
-
-A type helper that wraps an event type with Actor Kit-specific properties.
-
-#### Type Parameters
-
-- `TEvent`: The base event type
-- `TCallerType`: The type of caller ("client" or "service")
-
-#### Added Properties
-
-- `caller`: Information about the event caller
-- `cf`: CloudFlare-specific properties (optional)
 
 ## Caller Types
 
@@ -239,313 +318,3 @@ Actor Kit supports different types of callers:
 - `client`: Events from end-users or client applications
 - `system`: Internal events generated by the actor system (handled internally)
 - `service`: Events from trusted external services or internal microservices
-
-## PartyKit Integration
-
-To use Actor Kit with PartyKit, create a `partykit.json` file in your project root:
-
-```json
-{
-  "$schema": "https://www.partykit.io/schema.json",
-  "name": "todo-list",
-  "main": "build/index.js",
-  "compatibilityDate": "2023-12-22",
-  "parties": {
-    "todo": "server/todo.server.ts"
-  },
-  "serve": "public"
-}
-```
-
-Key point about this configuration:
-
-- `parties`: Defines the entry points for your party servers. In this example, "todo" is set to "server/todo.server.ts".
-
-Adjust these fields as needed for your specific project structure and requirements.
-
-## Setting up App Context and PartySocket
-
-After setting up your server and generating the access token, you'll need to set up the app context and establish a connection using PartySocket. Here's an example of how you might do this:
-
-### App Context Setup
-
-First, let's create an `AppContext` that will manage the state and connection for our todo list application:
-
-```typescript
-// app-context.tsx
-import { atom } from "nanostores";
-import type { ReactNode } from "react";
-import { createContext, useContext, useLayoutEffect, useState } from "react";
-import { useSyncExternalStoreWithSelector } from "use-sync-external-store/shim/with-selector";
-import { createActor } from "xstate";
-import type { AppActor, AppSnapshot } from "~/state/app-machine";
-import { createAppMachine } from "~/state/app-machine";
-import { event$ } from "~/state/event";
-
-export const AppContext = (() => {
-  const started$ = atom(false);
-  const Provider = ({
-    input,
-    children,
-  }: {
-    input: {
-      userId: string;
-      connectionId: string;
-      connectionToken: string;
-      url: string;
-      initialSnapshot: TodoPersistedSnapshot;
-      host: string;
-    };
-    children: ReactNode;
-  }) => {
-    const [machine] = useState(createAppMachine());
-    const [actor] = useState(createActor(machine, { input }));
-    useLayoutEffect(() => {
-      if (!started$.get()) {
-        started$.set(true);
-        actor.start();
-        event$.subscribe((event) => {
-          event && actor.send(event);
-        });
-      }
-    }, [actor]);
-
-    return (
-      <InnerContext.Provider value={actor}>
-        {children}
-      </InnerContext.Provider>
-    );
-  };
-
-  const useSelector = <T,>(selector: (snapshot: AppSnapshot) => T) => {
-    const actor = useContext(InnerContext);
-    const subscribe = (onStoreChange: () => void) => {
-      const { unsubscribe } = actor.subscribe(onStoreChange);
-      return unsubscribe;
-    };
-    const getSnapshot = () => actor.getSnapshot();
-    const selectedSnapshot = useSyncExternalStoreWithSelector(
-      subscribe,
-      getSnapshot,
-      getSnapshot,
-      selector,
-      (a, b) => a === b
-    );
-    return selectedSnapshot;
-  };
-
-  return {
-    Provider,
-    useActorRef: () => useContext(InnerContext),
-    useSelector,
-  };
-})();
-
-const InnerContext = createContext({} as AppActor);
-```
-
-### PartySocket Connection
-
-Next, let's set up the PartySocket connection within our app machine:
-
-```typescript
-// app-machine.ts
-import { fromCallback, sendTo, setup } from "xstate";
-import { z } from "zod";
-import { TodoClientEventSchema } from "@/schemas";
-import type { TodoPersistedSnapshot } from "@/server/todo.machine";
-import type { TodoClientEventProps } from "@/types";
-import PartySocket from "partysocket";
-
-export type AppEvent = TodoClientEventProps;
-
-const AppContextSchema = z.object({
-  userId: z.string(),
-  connectionId: z.string(),
-  connectionToken: z.string(),
-  url: z.string(),
-  host: z.string(),
-  todoSnapshot: z.custom<TodoPersistedSnapshot>(),
-});
-export type AppContext = z.infer<typeof AppContextSchema>;
-
-export const createAppMachine = () =>
-  setup({
-    actors: {
-      connectToServer: fromCallback(
-        ({
-          input,
-          sendBack,
-          receive,
-        }: {
-          input: {
-            userId: string;
-            host: string;
-            connectionId: string;
-            connectionToken: string;
-            url: string;
-          };
-          sendBack: (event: AppEvent) => void;
-          receive: (listener: (event: AppEvent) => void) => void;
-        }) => {
-          const socket = new PartySocket({
-            host: input.host,
-            party: "todo",
-            room: input.userId,
-            id: input.connectionId,
-            query: { token: input.connectionToken },
-          });
-
-          receive((event) => {
-            socket.send(JSON.stringify(event));
-          });
-
-          socket.addEventListener("message", (message: MessageEvent<string>) => {
-            const event = JSON.parse(message.data);
-            if (TodoClientEventSchema.safeParse(event).success) {
-              sendBack(event);
-            }
-          });
-
-          return () => {
-            socket.close();
-          };
-        }
-      ),
-    },
-    types: {
-      events: {} as AppEvent,
-      context: {} as AppContext,
-      input: {} as {
-        userId: string;
-        host: string;
-        connectionId: string;
-        connectionToken: string;
-        url: string;
-        initialSnapshot: TodoPersistedSnapshot;
-      },
-    },
-  }).createMachine({
-    id: "AppMachine",
-    type: "parallel",
-    context: ({ input }) => ({
-      userId: input.userId,
-      connectionId: input.connectionId,
-      connectionToken: input.connectionToken,
-      url: input.url,
-      host: input.host,
-      todoSnapshot: input.initialSnapshot,
-    }),
-    states: {
-      Server: {
-        initial: "Connecting",
-        states: {
-          Connecting: {
-            invoke: {
-              id: "serverConnection",
-              src: "connectToServer",
-              input: ({ context }) => ({
-                userId: context.userId,
-                host: context.host,
-                connectionId: context.connectionId,
-                connectionToken: context.connectionToken,
-                url: context.url,
-              }),
-              onDone: "Connected",
-              onError: "ConnectionFailed",
-            },
-          },
-          Connected: {
-            on: {
-              "*": {
-                actions: sendTo("serverConnection", ({ event }) => event),
-              },
-            },
-          },
-          ConnectionFailed: {
-            after: {
-              5000: "Connecting",
-            },
-          },
-        },
-      },
-    },
-  });
-
-export type AppMachine = ReturnType<typeof createAppMachine>;
-export type AppSnapshot = SnapshotFrom<AppMachine>;
-export type AppActor = Actor<AppMachine>;
-```
-
-### Using the App Context in Components
-
-Finally, here's how you might use the `AppContext` in your components:
-
-```typescript
-// TodoList.tsx
-import { AppContext } from "~/components/app-context";
-
-export function TodoList() {
-  const todos = AppContext.useSelector((state) => state.context.todoSnapshot.todos);
-  const actor = AppContext.useActorRef();
-
-  const addTodo = (text: string) => {
-    actor.send({ type: "ADD_TODO", text });
-  };
-
-  const toggleTodo = (id: string) => {
-    actor.send({ type: "TOGGLE_TODO", id });
-  };
-
-  const removeTodo = (id: string) => {
-    actor.send({ type: "REMOVE_TODO", id });
-  };
-
-  return (
-    <div>
-      {/* Render your todo list here */}
-      {todos.map((todo) => (
-        <div key={todo.id}>
-          <span>{todo.text}</span>
-          <button onClick={() => toggleTodo(todo.id)}>
-            {todo.completed ? "Mark Incomplete" : "Mark Complete"}
-          </button>
-          <button onClick={() => removeTodo(todo.id)}>Remove</button>
-        </div>
-      ))}
-      {/* Add a form to add new todos */}
-    </div>
-  );
-}
-```
-
-This setup allows you to:
-
-1. Manage your application state using XState.
-2. Establish a real-time connection with your server using PartySocket.
-3. Provide a consistent way to access and update your todo list state across your application.
-
-Remember to wrap your main application component with the `AppContext.Provider` as shown in the earlier example:
-
-```typescript
-export default function TodoApp() {
-  const data = useLoaderData<typeof loader>();
-  const location = useLocation();
-
-  return (
-    <AppContext.Provider
-      input={{
-        userId: data.connectionId,
-        connectionId: data.connectionId,
-        connectionToken: data.token,
-        host: data.host,
-        url: location.pathname + location.search,
-        initialSnapshot: data.snapshot as TodoPersistedSnapshot,
-      }}
-    >
-      <TodoList />
-      {/* Other components */}
-    </AppContext.Provider>
-  );
-}
-```

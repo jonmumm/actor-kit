@@ -1,0 +1,69 @@
+import { z } from "zod";
+import { createAccessToken } from "./createAccessToken";
+import { ActorKitStateMachine, CallerSnapshotFrom } from "./types";
+
+const ResponseSchema = z.object({
+  snapshot: z.record(z.any()),
+  connectionId: z.string(),
+  connectionToken: z.string(),
+});
+
+export function createActorFetch<TMachine extends ActorKitStateMachine>(
+  actorType: string
+) {
+  return async function fetchActor(
+    props: {
+      actorId: string;
+      callerId: string;
+      host?: string;
+      signingKey?: string;
+    },
+    options?: RequestInit
+  ): Promise<{
+    snapshot: CallerSnapshotFrom<TMachine>;
+    connectionId: string;
+    connectionToken: string;
+  }> {
+    const host = props?.host ?? process.env.ACTOR_KIT_HOST;
+    const signingKey = props?.signingKey ?? process.env.ACTOR_KIT_SECRET;
+
+    if (!host) throw new Error("Actor Kit host is not defined");
+    if (!signingKey) throw new Error("Actor Kit signing key is not defined");
+
+    const accessToken = await createAccessToken({
+      signingKey,
+      actorId: props.actorId,
+      actorType,
+      callerId: props.callerId,
+      callerType: "client",
+    });
+
+    const route = getActorRoute(actorType, props.actorId);
+    const url = `${host}${route}`;
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...options?.headers,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch actor: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const parsedData = ResponseSchema.parse(data);
+
+    return {
+      snapshot: parsedData.snapshot as CallerSnapshotFrom<TMachine>,
+      connectionId: parsedData.connectionId,
+      connectionToken: parsedData.connectionToken,
+    };
+  };
+}
+
+function getActorRoute(actorType: string, actorId: string) {
+  return `/parties/${actorType}/${actorId}`;
+}

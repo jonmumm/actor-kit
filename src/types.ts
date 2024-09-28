@@ -2,9 +2,9 @@ import type * as Party from "partykit/server";
 import type { AnyStateMachine, SnapshotFrom, StateMachine } from "xstate";
 import type { z } from "zod";
 import type {
-  CallerSchema,
-  RequestInfoSchema,
-  SystemEventSchema,
+    CallerSchema,
+    RequestInfoSchema,
+    SystemEventSchema,
 } from "./schemas";
 
 export type Caller = z.infer<typeof CallerSchema>;
@@ -24,10 +24,7 @@ export type WithIdAndCallerInput = {
   [key: string]: unknown;
 };
 
-export type CreateMachineProps<TOutput extends { type: string }> =
-  WithIdAndCallerInput & {
-    send: (event: OutputEvent<TOutput>) => void;
-  };
+export type CreateMachineProps = WithIdAndCallerInput;
 
 export type CallerType = "client" | "system" | "service";
 
@@ -38,9 +35,6 @@ export type EventSchemas = {
   service:
     | z.ZodDiscriminatedUnion<"type", [z.ZodObject<any>, ...z.ZodObject<any>[]]>
     | z.ZodObject<z.ZodRawShape & { type: z.ZodLiteral<string> }>;
-  output:
-    | z.ZodDiscriminatedUnion<"type", [z.ZodObject<any>, ...z.ZodObject<any>[]]>
-    | z.ZodObject<z.ZodRawShape & { type: z.ZodLiteral<string> }>;
 };
 
 export type EventWithCaller = {
@@ -48,11 +42,11 @@ export type EventWithCaller = {
   [key: string]: unknown;
 };
 
-export type ActorKitStateMachine<TOutput extends { type: string }> =
+export type ActorKitStateMachine =
   StateMachine<
     {
       public: any;
-      history: (OutputEvent<TOutput> & { sentAt: number })[];
+      private: Record<string, any>;
     } & {
       [key: string]: unknown;
     },
@@ -64,7 +58,7 @@ export type ActorKitStateMachine<TOutput extends { type: string }> =
     any, // delay
     any, // state value
     any, // tag
-    CreateMachineProps<TOutput>, // input, now including the send function
+    CreateMachineProps, // input
     any, // tag
     any, // tag
     any, // tag
@@ -98,15 +92,12 @@ export type WithActorKitEvent<
   C extends CallerType
 > = T & BaseActorKitEvent & { caller: { type: C } };
 
-// New type for output events
-export type OutputEvent<T extends { type: string }> = {
-  event: T;
-  recipients?: Caller[];
-};
-
-export type PublicSnapshotFrom<TMachine extends AnyStateMachine> = {
+export type CallerSnapshotFrom<TMachine extends AnyStateMachine> = {
   public: SnapshotFrom<TMachine> extends { context: { public: infer P } }
     ? P
+    : unknown;
+  private: SnapshotFrom<TMachine> extends { context: { private: Partial<Record<string, infer PR>> } }
+    ? PR
     : unknown;
   value: SnapshotFrom<TMachine> extends { value: infer V } ? V : unknown;
 };
