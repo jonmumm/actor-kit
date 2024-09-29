@@ -1,8 +1,8 @@
-# Actor Kit
+# 🎭 Actor Kit
 
-Actor Kit is a library for creating and managing actor-based state machines (via XState) in Cloudflare Workers. It provides a framework for handling different types of events from various sources and manages the lifecycle of actors.
+Actor Kit is a powerful library for creating and managing actor-based state machines in Cloudflare Workers, leveraging XState for robust state management. It provides a comprehensive framework for handling different types of events from various sources and manages the lifecycle of actors in a distributed environment.
 
-## Installation
+## 🚀 Installation
 
 To install Actor Kit, use your preferred package manager:
 
@@ -14,21 +14,27 @@ yarn add actor-kit xstate zod partykit
 pnpm add actor-kit xstate zod partykit
 ```
 
-After reviewing the current example in the README and comparing it with the provided code snippets from the actual implementation, I can see that there are some differences. We should update the example in the README to better reflect the current implementation. Here's a suggested update:
+## 🌟 Key Concepts
 
-## Usage
+- 🖥️ **Server-Side Rendering**: Fetch initial state server-side for optimal performance and SEO.
+- ⚡ **Real-time Updates**: Changes are immediately reflected across all connected clients, ensuring a responsive user experience.
+- 🔒 **Type Safety**: Leverage TypeScript and Zod for robust type checking and runtime validation.
+- 🎭 **Event-Driven Architecture**: All state changes are driven by events, providing a clear and predictable data flow.
+- 🧠 **State Machine Logic**: Powered by XState, making complex state management more manageable and visualizable.
+- 🔄 **Seamless Synchronization**: Actor Kit handles state synchronization between server and clients automatically.
+- 🔐 **Public and Private Data**: Manage shared data across all clients and caller-specific information securely.
+- 🌐 **Distributed Systems**: Built for scalable, distributed applications running on edge computing platforms.
 
-Here's a barebones example of how to use Actor Kit to create a todo list application with Next.js, fetching data server-side.
+## 🛠️ Usage
 
-### Actor Server State Machine Setup
+Here's a basic example of how to use Actor Kit to create a todo list application with Next.js, fetching data server-side:
 
-Setup your actor by defining events, context shape, and state machine logic.
+### 1. Define your state machine
 
 ```typescript
-// file: src/server/todo.actor.ts
+// src/server/todo.actor.ts
 import type { CreateMachineProps } from "actor-kit";
 import { assign, setup } from "xstate";
-import type { TodoEvent } from "./todo.types";
 
 export const createTodoListMachine = ({ id }: CreateMachineProps) =>
   setup({
@@ -38,52 +44,34 @@ export const createTodoListMachine = ({ id }: CreateMachineProps) =>
           todos: Array<{ id: string; text: string; completed: boolean }>;
           lastSync: number | null;
         };
-        private: Record<
-          string,
-          {
-            lastAccessTime?: Date;
-            userPreferences?: {
-              theme: "light" | "dark";
-              sortOrder: "asc" | "desc";
-            };
-          }
-        >;
+        private: Record<string, { lastAccessTime?: Date }>;
       },
-      events: {} as TodoEvent,
+      events: {} as
+        | { type: "ADD_TODO"; text: string }
+        | { type: "TOGGLE_TODO"; id: string }
+        | { type: "DELETE_TODO"; id: string },
     },
     actions: {
       addTodo: assign({
-        public: ({ context, event }) => {
-          if (event.type !== "ADD_TODO") return context.public;
-          return {
-            ...context.public,
-            todos: [
-              ...context.public.todos,
-              { id: crypto.randomUUID(), text: event.text, completed: false },
-            ],
-            lastSync: new Date().getTime(),
-          };
-        },
+        public: ({ context, event }) => ({
+          ...context.public,
+          todos: [
+            ...context.public.todos,
+            { id: crypto.randomUUID(), text: event.text, completed: false },
+          ],
+          lastSync: Date.now(),
+        }),
       }),
-      // ... other actions (toggleTodo, deleteTodo)
+      // ... other actions
     },
   }).createMachine({
     id,
-    type: "parallel",
-    context: {
-      public: {
-        todos: [],
-        lastSync: null,
-      },
-      private: {},
-    },
+    initial: "idle",
     states: {
-      TodoManagement: {
+      idle: {
         on: {
-          ADD_TODO: {
-            actions: ["addTodo"],
-          },
-          // ... other event handlers
+          ADD_TODO: { actions: "addTodo" },
+          // ... other transitions
         },
       },
     },
@@ -92,10 +80,10 @@ export const createTodoListMachine = ({ id }: CreateMachineProps) =>
 export type TodoMachine = ReturnType<typeof createTodoListMachine>;
 ```
 
-Create a file to export the server.
+### 2. Set up the Actor Server
 
 ```typescript
-// file: src/server/todo.server.ts
+// src/server/todo.server.ts
 import { createMachineServer } from "actor-kit/worker";
 import { createTodoListMachine } from "./todo.actor";
 import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
@@ -114,23 +102,23 @@ const TodoListServer = createMachineServer(
 export default TodoListServer;
 ```
 
-### Server-side Data Fetching
-
-In your Next.js app, use the `createActorFetch` function to fetch the current snapshot and initialize a connection to the server.
+### 3. Fetch data server-side
 
 ```typescript
-// app/page.tsx
+// app/lists/[id]/page.tsx
 import { createActorFetch } from "actor-kit/server";
-import type { TodoMachine } from "../server/todo.actor";
+import type { TodoMachine } from "../../../server/todo.actor";
+import { TodoList } from "./components";
 import { TodoActorKitProvider } from "./context";
-import TodoList from "./todolist";
 
 const fetchTodoActor = createActorFetch<TodoMachine>("todo");
 
-export default async function TodoPage() {
-  const userId = getUserId(); // Assuming getUserId is a function that retrieves the user ID from the request or session
+export default async function TodoPage({ params }: { params: { id: string } }) {
+  const listId = params.id;
+  const userId = "user-123"; // Replace with actual user ID logic
+
   const payload = await fetchTodoActor({
-    actorId: userId,
+    actorId: listId,
     callerId: userId,
   });
 
@@ -138,8 +126,7 @@ export default async function TodoPage() {
     <TodoActorKitProvider
       options={{
         host: process.env.ACTOR_KIT_HOST!,
-        actorType: "todo",
-        actorId: userId,
+        actorId: listId,
         connectionId: payload.connectionId,
         connectionToken: payload.connectionToken,
         initialState: payload.snapshot,
@@ -151,18 +138,16 @@ export default async function TodoPage() {
 }
 ```
 
-### Client-side Component
-
-Create a client-side component to interact with the todo list.
+### 4. Create a client-side component
 
 ```typescript
-// app/todolist.tsx
+// app/lists/[id]/components.tsx
 "use client";
 
 import React, { useState } from "react";
 import { TodoActorKitContext } from "./context";
 
-export default function TodoList() {
+export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
   const send = TodoActorKitContext.useSend();
   const [newTodoText, setNewTodoText] = useState("");
@@ -190,11 +175,7 @@ export default function TodoList() {
       <ul>
         {todos.map((todo) => (
           <li key={todo.id}>
-            <span
-              style={{
-                textDecoration: todo.completed ? "line-through" : "none",
-              }}
-            >
+            <span style={{ textDecoration: todo.completed ? "line-through" : "none" }}>
               {todo.text}
             </span>
             <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
@@ -211,9 +192,44 @@ export default function TodoList() {
 }
 ```
 
-Make sure to set the appropriate environment variables (`ACTOR_KIT_HOST`, `ACTOR_KIT_SECRET`) in your Next.js app.
+## 🚀 Getting Started
 
-## API Reference
+1. Install dependencies:
+   ```bash
+   npm install actor-kit xstate zod partykit
+   ```
+
+2. Set up environment variables:
+   - `ACTOR_KIT_HOST`: The host for your Actor Kit server
+   - `ACTOR_KIT_SECRET`: Secret key for Actor Kit
+
+3. Create a PartyKit configuration file (`partykit.json`) in your project root:
+   ```json
+   {
+     "$schema": "https://www.partykit.io/schema.json",
+     "name": "your-project-name",
+     "main": "build/index.js",
+     "compatibilityDate": "2023-12-22",
+     "parties": {
+       "todo": "src/server/todo.server.ts"
+     },
+     "serve": "public"
+   }
+   ```
+
+   This configuration tells PartyKit where to find your actor server file and sets up the necessary routing.
+
+4. Start the PartyKit development server:
+   ```bash
+   npx partykit dev
+   ```
+
+5. In a separate terminal, run your Next.js development server:
+   ```bash
+   npm run dev
+   ```
+
+## 📚 API Reference
 
 ### `actor-kit/worker`
 
@@ -241,25 +257,6 @@ Creates a function for fetching actor data. Used in a trusted server environment
 
 Returns a function `(props: object) => Promise<{ snapshot: CallerSnapshot, connectionId: string, connectionToken: string }>` that fetches a snapshot of the actor data.
 
-The returned fetch function takes the following props:
-
-- `actorId`: ID of the actor to fetch
-- `callerId`: ID of the caller (typically a user id or identifier for a service)
-- `host`: (Optional) Override the default Actor Kit host (default: process.env.ACTOR_KIT_HOST)
-- `signingKey`: (Optional) Override the default Actor Kit signing key (default: process.env.ACTOR_KIT_SECRET)
-- `waitFor`: (Optional) A predicate function that waits for a specific condition to be met in the actor's state before returning
-
-#### `waitFor<TMachine>(predicate: (snapshot: CallerSnapshotFrom<TMachine>) => boolean, options?: WaitForOptions)`
-
-Creates a predicate function that can be passed to `createActorFetch` to wait for a specific condition in the actor's state.
-
-- `predicate`: A function that takes the current snapshot and returns a boolean indicating if the condition is met.
-- `options`: (Optional) Configuration options for the wait operation.
-  - `timeout`: Maximum time to wait (in milliseconds) before timing out.
-  - `interval`: Time between checks (in milliseconds).
-
-Returns a function compatible with the `waitFor` option in `createActorFetch`.
-
 ### `actor-kit/react`
 
 #### `createActorKitContext<TMachine>()`
@@ -279,25 +276,7 @@ Returns an object with:
 
 Creates an Actor Kit client for managing state and communication with the server.
 
-- `props`: Configuration options for the client.
-  - `host: string`: Hostname of the PartyKit server.
-  - `actorType: string`: Type of the actor (e.g., "todo", "player").
-  - `actorId: string`: Unique identifier for the specific actor instance.
-  - `connectionId: string`: Unique identifier for the client connection.
-  - `connectionToken: string`: Authentication token for the connection.
-  - `initialState: TSnapshot`: Initial client state.
-  - `onStateChange?: (newState: TSnapshot) => void`: Optional state change callback.
-  - `onError?: (error: Error) => void`: Optional error handler.
-
-Returns an `ActorKitClient<TClientEvent, TSnapshot>` object with methods:
-
-- `connect(): Promise<void>`: Establishes a WebSocket connection to the server.
-- `disconnect(): void`: Closes the WebSocket connection.
-- `send(event: TClientEvent): void`: Sends an event to the server.
-- `getState(): TSnapshot`: Returns the current state.
-- `subscribe(listener: (state: TSnapshot) => void): () => void`: Subscribes to state changes.
-
-## Types
+## 🔑 Types
 
 The following types are exported from the main `actor-kit` package:
 
@@ -305,57 +284,34 @@ The following types are exported from the main `actor-kit` package:
 
 Utility type that wraps an event type with Actor Kit-specific properties.
 
-- `TEvent`: Base event type.
-- `TCallerType`: Type of caller ("client" or "service").
-
 ### `CallerSnapshotFrom<TMachine>`
 
 Utility type to extract the caller-specific snapshot from a machine type.
 
 ### `ActorKitStateMachine`
 
-Type definition for an Actor Kit state machine, extending XState's `StateMachine` type. Requires `public` and `private` to be specified in the `context`.
+Type definition for an Actor Kit state machine, extending XState's `StateMachine` type.
 
-## Public and Private Data
+## 🔒 Public and Private Data
 
-Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information.
+Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information securely.
 
-### Defining Public and Private Data
+## 👥 Caller Types
 
-In your state machine, define the public and private data as part of the context:
+Actor Kit supports different types of callers, each with its own level of trust and permissions:
 
-```typescript
-setup({
-  types: {
-    context: {} as {
-      public: {
-        // Data shared across all clients
-        todos: Array<{ id: string; text: string; completed: boolean }>;
-        lastSync: Date | null;
-      };
-      private: {} as Record<string, {
-        // Caller-specific data
-        lastAccessTime?: Date;
-        userPreferences?: {
-          theme: "light" | "dark";
-          sortOrder: "asc" | "desc";
-        };
-      }>;
-    },
-    // ... other type definitions
-  },
-  // ... rest of the machine definition
-});
-```
+- 👤 `client`: Events from end-users or client applications
+- 🤖 `system`: Internal events generated by the actor system (handled internally)
+- 🔧 `service`: Events from trusted external services or internal microservices
 
-### Persistent vs Synced Snapshots
+## 📖 Documentation
 
-In the persistent snapshot, both `public` and `private` data are stored in the `context`. In the synced snapshot (what clients receive), `public` data is shared across all clients, while `private` data is limited to the matching caller. All other context keys (like `history` in the example) are excluded when syncing.
+For more detailed documentation, including advanced usage, best practices, and API details, visit our [official documentation](https://docs.actor-kit.dev).
 
-## Caller Types
+## 🤝 Contributing
 
-Actor Kit supports different types of callers:
+We welcome contributions! Please see our [contributing guide](CONTRIBUTING.md) for more details.
 
-- `client`: Events from end-users or client applications
-- `system`: Internal events generated by the actor system (handled internally)
-- `service`: Events from trusted external services or internal microservices
+## 📄 License
+
+Actor Kit is [MIT licensed](LICENSE).
