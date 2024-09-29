@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { TodoActorKitContext } from "./context";
 
-export default function TodoList() {
+export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
   console.log("todos", todos);
   const send = TodoActorKitContext.useSend();
