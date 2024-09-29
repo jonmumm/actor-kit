@@ -1,4 +1,5 @@
 import { compare } from "fast-json-patch";
+import { jwtVerify } from "jose";
 import type * as Party from "partykit/server";
 import type {
   Actor,
@@ -10,7 +11,11 @@ import type {
 import { createActor, waitFor } from "xstate";
 import type { z } from "zod";
 import { CallerTypes, PERSISTED_SNAPSHOT_KEY } from "./constants";
-import { EnvironmentSchema, RequestInfoSchema } from "./schemas";
+import {
+  CallerStringSchema,
+  EnvironmentSchema,
+  RequestInfoSchema,
+} from "./schemas";
 import type {
   ActorKitStateMachine,
   Caller,
@@ -25,11 +30,9 @@ import {
   applyMigrations,
   assert,
   createConnectionToken,
-  getCallerFromRequest,
   json,
   loadPersistedSnapshot,
   notFound,
-  parseConnectionToken,
   parseQueryParams,
 } from "./utils";
 
@@ -253,25 +256,27 @@ export const createMachineServer = <
     async #handleGetRequest(request: Party.Request, caller: Caller) {
       const params = parseQueryParams(request.url);
       const inputJsonString = params.get("input");
-      assert(inputJsonString, "expected input object in query params");
-      const inputJson = JSON.parse(inputJsonString);
+      const inputJson = inputJsonString ? JSON.parse(inputJsonString) : {};
+      const waitForState = params.get("waitFor");
 
       const actor = this.#ensureActorRunning({ caller, inputJson });
       const connectionId = crypto.randomUUID();
       this.callersByConnectionId.set(connectionId, caller);
 
-      const { API_AUTH_SECRET } = EnvironmentSchema.parse(this.room.env);
-      const token = await createConnectionToken(
+      const { ACTOR_KIT_SECRET } = EnvironmentSchema.parse(this.room.env);
+      const connectionToken = await createConnectionToken(
         this.room.id,
         connectionId,
         caller.type,
-        API_AUTH_SECRET
+        ACTOR_KIT_SECRET
       );
 
-      await waitFor(actor, (state) => {
-        const anyState = state as SnapshotFrom<AnyStateMachine>;
-        return anyState.matches({ Initialization: "Ready" });
-      });
+      if (waitForState) {
+        await waitFor(actor, (state) => {
+          const anyState = state as SnapshotFrom<AnyStateMachine>;
+          return anyState.matches(waitForState);
+        });
+      }
 
       const fullSnapshot = actor.getSnapshot();
       const snapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
@@ -287,7 +292,7 @@ export const createMachineServer = <
 
       return json({
         connectionId,
-        token,
+        connectionToken,
         snapshot,
       });
     }
@@ -337,13 +342,12 @@ export const createMachineServer = <
     }
 
     async onRequest(request: Party.Request) {
-      const { API_AUTH_SECRET } = EnvironmentSchema.parse(this.room.env);
+      const { ACTOR_KIT_SECRET } = EnvironmentSchema.parse(this.room.env);
       const caller = await getCallerFromRequest(
         request,
         this.room.name,
         this.room.id,
-        this.callersByConnectionId,
-        API_AUTH_SECRET
+        ACTOR_KIT_SECRET
       );
       assert(caller, "expected caller to be set");
 
@@ -383,12 +387,12 @@ export const createMachineServer = <
         context.request.url.split("?")[1]
       );
       const token = searchParams.get("token");
-      assert(token, "expected token when connecting to socket");
+      assert(token, "expected connection token when connecting to socket");
 
       try {
-        const { API_AUTH_SECRET } = EnvironmentSchema.parse(this.room.env);
-        const verified = await parseConnectionToken(token, API_AUTH_SECRET);
-        const connectionId = verified.payload.jti;
+        const { ACTOR_KIT_SECRET } = EnvironmentSchema.parse(this.room.env);
+        const { payload } = await parseConnectionToken(token, ACTOR_KIT_SECRET);
+        const connectionId = payload.jti;
         assert(connectionId, "expected connectionId from token");
         assert(
           connectionId === connection.id,
@@ -396,18 +400,13 @@ export const createMachineServer = <
         );
 
         const caller: Caller = {
-          id: verified.payload.sub as string,
-          type: verified.payload.aud as "client" | "service",
+          id: payload.sub as string,
+          type: payload.aud as "client" | "service",
         };
 
         this.callersByConnectionId.set(connection.id, caller);
 
-        console.log("ensuring actor is running on connect", caller);
         const actor = this.#ensureActorRunning({ caller });
-        await waitFor(actor, (state) => {
-          const anyState = state as SnapshotFrom<AnyStateMachine>;
-          return anyState.matches({ Initialization: "Ready" });
-        });
 
         let lastSnapshot =
           this.lastSnapshotsByConnectionId.get(connection.id) || {};
@@ -529,4 +528,71 @@ export const createMachineServer = <
   }
 
   return ActorServer satisfies Party.Worker;
+};
+
+/**
+ * Extracts caller information from a request.
+ * This function handles both access token and connection token authentication methods.
+ * @param request The incoming request.
+ * @param roomName The name of the room (used for token validation).
+ * @param roomId The ID of the room (used for token validation).
+ * @param callersByConnectionId A map of existing callers by their connection IDs.
+ * @returns A Caller object if authentication is successful, undefined otherwise.
+ */
+const getCallerFromRequest = async (
+  request: Party.Request,
+  roomName: string,
+  roomId: string,
+  secret: string
+): Promise<Caller | undefined> => {
+  const authHeader = request.headers.get("Authorization");
+  const accessToken = authHeader?.split(" ")[1];
+  assert(accessToken, "expected access token");
+  return parseAccessTokenForCaller({
+    accessToken,
+    type: roomName,
+    id: roomId,
+    secret,
+  });
+};
+
+/**
+ * Parses and validates an access token to extract caller information.
+ * @param accessToken The JWT access token to parse.
+ * @param type The expected type of the caller.
+ * @param id The expected ID of the actor.
+ * @returns A validated Caller object.
+ */
+const parseAccessTokenForCaller = async ({
+  accessToken,
+  type,
+  id,
+  secret,
+}: {
+  accessToken: string;
+  type: string;
+  id: string;
+  secret: string;
+}) => {
+  const verified = await jwtVerify(
+    accessToken,
+    new TextEncoder().encode(secret)
+  );
+  assert(verified.payload.jti, "expected JTI on accessToken");
+  assert(
+    verified.payload.jti === id,
+    "expected JTI on accessToken to match actor id: " + id
+  );
+  assert(
+    verified.payload.aud,
+    "expected accessToken audience to match actor type: " + type
+  );
+  assert(verified.payload.sub, "expected accessToken to have subject");
+  return CallerStringSchema.parse(verified.payload.sub);
+};
+
+const parseConnectionToken = async (token: string, secret: string) => {
+  const verified = await jwtVerify(token, new TextEncoder().encode(secret));
+  assert(verified.payload.jti, "expected JTI on connectionToken");
+  return verified;
 };

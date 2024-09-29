@@ -12,8 +12,8 @@ export const BotManagementSchema = z.object({
 });
 
 export const EnvironmentSchema = z.object({
-  API_AUTH_SECRET: z.string(),
-  API_HOST: z.string(),
+  ACTOR_KIT_SECRET: z.string(),
+  ACTOR_KIT_HOST: z.string(),
 });
 
 export const RequestInfoSchema = z.object({
@@ -44,6 +44,10 @@ export const SystemEventSchema = z.discriminatedUnion("type", [
 export const CallerIdTypeSchema = z.enum(["client", "service", "system"]);
 
 export const CallerStringSchema = z.string().transform((val, ctx) => {
+  if (val === "anonymous") {
+    return { type: "client" as const, id: "anonymous" };
+  }
+
   // Regular expression to validate the UUID format
   const callerTypeParseResult = CallerIdTypeSchema.safeParse(val.split("-")[0]);
   if (!callerTypeParseResult.success) {
@@ -59,7 +63,7 @@ export const CallerStringSchema = z.string().transform((val, ctx) => {
     // If not valid, add a custom issue
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: `Must be a valid uuid. Received '${id}' on value '${val}'.`,
+      message: `Must be a valid uuid or 'anonymous'. Received '${id}' on value '${val}'.`,
     });
     // Return the special NEVER symbol to indicate a validation failure
     return z.NEVER;

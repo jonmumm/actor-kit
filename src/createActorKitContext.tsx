@@ -1,23 +1,49 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { createActorKitClient, ActorKitClient, ActorKitClientOptions } from './createActorKitClient';
+"use client";
 
-export function createActorKitContext<TClientEvent, TSnapshot>() {
-  const ActorKitContext = createContext<ActorKitClient<TClientEvent, TSnapshot> | null>(null);
+import React, {
+  createContext,
+  ReactNode,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { useSyncExternalStoreWithSelector } from "use-sync-external-store/shim/with-selector";
+import type {
+  ActorKitClient,
+  ActorKitClientProps,
+} from "./createActorKitClient";
+import { createActorKitClient } from "./createActorKitClient";
+import type {
+  ActorKitStateMachine,
+  CallerSnapshotFrom,
+  UnwrapClientEvent,
+} from "./types";
+
+export function createActorKitContext<TMachine extends ActorKitStateMachine>() {
+  const ActorKitContext = createContext<ActorKitClient<TMachine> | null>(null);
 
   const Provider: React.FC<{
     children: ReactNode;
-    options: ActorKitClientOptions<TClientEvent, TSnapshot>;
+    options: ActorKitClientProps<TMachine>;
   }> = ({ children, options }) => {
-    const [client, setClient] = useState<ActorKitClient<TClientEvent, TSnapshot> | null>(null);
+    const [client, setClient] = useState<ActorKitClient<TMachine> | null>(null);
+    const clientRef = useRef<ActorKitClient<TMachine> | null>(null);
 
     useEffect(() => {
-      const newClient = createActorKitClient(options);
-      newClient.connect().then(() => {
-        setClient(newClient);
-      });
+      if (!clientRef.current) {
+        const newClient = createActorKitClient<TMachine>(options);
+        clientRef.current = newClient;
+        newClient.connect().then(() => {
+          setClient(newClient);
+        });
+      }
 
       return () => {
-        newClient.disconnect();
+        if (clientRef.current) {
+          clientRef.current.disconnect();
+          clientRef.current = null;
+        }
       };
     }, [options]);
 
@@ -32,31 +58,31 @@ export function createActorKitContext<TClientEvent, TSnapshot>() {
     );
   };
 
-  function useClient(): ActorKitClient<TClientEvent, TSnapshot> {
+  function useClient(): ActorKitClient<TMachine> {
     const client = useContext(ActorKitContext);
     if (!client) {
-      throw new Error('useClient must be used within an ActorKitContext.Provider');
+      throw new Error(
+        "useClient must be used within an ActorKitContext.Provider"
+      );
     }
     return client;
   }
 
-  function useSelector<T>(selector: (state: TSnapshot) => T): T {
+  const useSelector = <T,>(
+    selector: (snapshot: CallerSnapshotFrom<TMachine>) => T
+  ) => {
     const client = useClient();
-    const [selectedState, setSelectedState] = useState<T>(() => selector(client.getState()));
 
-    useEffect(() => {
-      return client.subscribe((state: TSnapshot) => {
-        const newSelectedState = selector(state);
-        if (!Object.is(newSelectedState, selectedState)) {
-          setSelectedState(newSelectedState);
-        }
-      });
-    }, [client, selector, selectedState]);
+    return useSyncExternalStoreWithSelector(
+      client.subscribe,
+      client.getState,
+      client.getState,
+      selector,
+      defaultCompare
+    );
+  };
 
-    return selectedState;
-  }
-
-  function useSend(): (event: TClientEvent) => void {
+  function useSend(): (event: UnwrapClientEvent<TMachine>) => void {
     const client = useClient();
     return client.send;
   }
@@ -67,4 +93,8 @@ export function createActorKitContext<TClientEvent, TSnapshot>() {
     useSelector,
     useSend,
   };
+}
+
+function defaultCompare<T>(a: T, b: T) {
+  return a === b;
 }

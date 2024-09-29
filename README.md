@@ -14,6 +14,8 @@ yarn add actor-kit xstate zod partykit
 pnpm add actor-kit xstate zod partykit
 ```
 
+After reviewing the current example in the README and comparing it with the provided code snippets from the actual implementation, I can see that there are some differences. We should update the example in the README to better reflect the current implementation. Here's a suggested update:
+
 ## Usage
 
 Here's a barebones example of how to use Actor Kit to create a todo list application with Next.js, fetching data server-side.
@@ -24,78 +26,79 @@ Setup your actor by defining events, context shape, and state machine logic.
 
 ```typescript
 // file: src/server/todo.actor.ts
-import { setup } from "xstate";
-import { createMachineServer } from "actor-kit/server";
-import { createActorFetch } from "actor-kit/fetch";
-import { z } from "zod";
+import type { CreateMachineProps } from "actor-kit";
+import { assign, setup } from "xstate";
+import type { TodoEvent } from "./todo.types";
 
-// Define event schemas
-const TodoClientEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
-  z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
-  z.object({ type: z.literal("DELETE_TODO"), id: z.string() }),
-]);
-
-const TodoServiceEventSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("SYNC_TODOS"),
-    todos: z.array(
-      z.object({ id: z.string(), text: z.string(), completed: z.boolean() })
-    ),
-  }),
-]);
-
-// Define the state machine
-export const createTodoListMachine = setup({
-  types: {
-    context: {} as {
-      public: {
-        todos: Array<{ id: string; text: string; completed: boolean }>;
-        lastSync: Date | null;
-      };
-      private: Record<
-        string,
-        {
-          lastAccessTime?: Date;
-          userPreferences?: {
-            theme: "light" | "dark";
-            sortOrder: "asc" | "desc";
-          };
-        }
-      >;
+export const createTodoListMachine = ({ id }: CreateMachineProps) =>
+  setup({
+    types: {
+      context: {} as {
+        public: {
+          todos: Array<{ id: string; text: string; completed: boolean }>;
+          lastSync: number | null;
+        };
+        private: Record<
+          string,
+          {
+            lastAccessTime?: Date;
+            userPreferences?: {
+              theme: "light" | "dark";
+              sortOrder: "asc" | "desc";
+            };
+          }
+        >;
+      },
+      events: {} as TodoEvent,
     },
-    events: {} as TodoClientEvent | TodoServiceEvent,
-  },
-}).createMachine({
-  // ... machine configuration
-});
+    actions: {
+      addTodo: assign({
+        public: ({ context, event }) => {
+          if (event.type !== "ADD_TODO") return context.public;
+          return {
+            ...context.public,
+            todos: [
+              ...context.public.todos,
+              { id: crypto.randomUUID(), text: event.text, completed: false },
+            ],
+            lastSync: new Date().getTime(),
+          };
+        },
+      }),
+      // ... other actions (toggleTodo, deleteTodo)
+    },
+  }).createMachine({
+    id,
+    type: "parallel",
+    context: {
+      public: {
+        todos: [],
+        lastSync: null,
+      },
+      private: {},
+    },
+    states: {
+      TodoManagement: {
+        on: {
+          ADD_TODO: {
+            actions: ["addTodo"],
+          },
+          // ... other event handlers
+        },
+      },
+    },
+  });
 
-// Create your actor server from the machine and event schemas
-export const TodoListServer = createMachineServer(
-  createTodoListMachine,
-  {
-    client: TodoClientEventSchema,
-    service: TodoServiceEventSchema,
-  },
-  {
-    persisted: true,
-  }
-);
-
-const TodoMachine = ReturnType<typeof createTodoListMachine>;
-export const fetchTodoActor = createActorFetch<TodoMachine>("todo");
+export type TodoMachine = ReturnType<typeof createTodoListMachine>;
 ```
 
 Create a file to export the server.
 
 ```typescript
 // file: src/server/todo.server.ts
-import { createMachineServer } from "actor-kit/server";
-import {
-  createTodoListMachine,
-  TodoClientEventSchema,
-  TodoServiceEventSchema,
-} from "./todo.actor";
+import { createMachineServer } from "actor-kit/worker";
+import { createTodoListMachine } from "./todo.actor";
+import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
 
 const TodoListServer = createMachineServer(
   createTodoListMachine,
@@ -111,73 +114,99 @@ const TodoListServer = createMachineServer(
 export default TodoListServer;
 ```
 
-### PartyKit Configuration
-
-Actor Kit is built on top of PartyKit, so you need to configure your project to use PartyKit. Create a `partykit.json` file in the root of your project with the following content:
-
-```json
-{
-  "name": "your-project-name",
-  "parties": {
-    "todo": "src/server/todo.server.ts"
-  },
-}
-```
-
-For more information on PartyKit configuration, refer to the [PartyKit documentation](https://docs.partykit.io/reference/partykit-json/).
-
 ### Server-side Data Fetching
 
-In your web server, use the `fetchTodoActor` function you created above to fetch the current snapshot and initialize a connection to the server. Server components pass this initial data down to the client to connect to the actor and listens for changes.
+In your Next.js app, use the `createActorFetch` function to fetch the current snapshot and initialize a connection to the server.
 
 ```typescript
-// app/todo/[id]/page.tsx
-import { fetchTodoActor } from "../server/todo.actor";
-import { createActorKitContext } from "actor-kit/react";
-import TodoClient from "./TodoClient";
-import { getUserId } from "../my-auth-system";
+// app/page.tsx
+import { createActorFetch } from "actor-kit/server";
+import type { TodoMachine } from "../server/todo.actor";
+import { TodoActorKitProvider } from "./context";
+import TodoList from "./todolist";
 
-const TodoActorKitContext = createActorKitContext<TodoClientEvent, TodoSnapshot>();
+const fetchTodoActor = createActorFetch<TodoMachine>("todo");
 
-export default async function TodoPage({ params }: { params: { id: string } }) {
-  const userId = getUserId(); // Get the user ID from your authentication system
-  const { snapshot, connectionId, connectionToken } = await fetchTodoActor({
-    id: params.id,
+export default async function TodoPage() {
+  const userId = getUserId(); // Assuming getUserId is a function that retrieves the user ID from the request or session
+  const payload = await fetchTodoActor({
+    actorId: userId,
     callerId: userId,
   });
 
   return (
-    <TodoActorKitContext.Provider
+    <TodoActorKitProvider
       options={{
         host: process.env.ACTOR_KIT_HOST!,
         actorType: "todo",
-        actorId: params.id,
-        connectionId,
-        connectionToken,
-        initialState: snapshot,
+        actorId: userId,
+        connectionId: payload.connectionId,
+        connectionToken: payload.connectionToken,
+        initialState: payload.snapshot,
       }}
     >
       <TodoList />
-    </TodoActorKitContext.Provider>
+    </TodoActorKitProvider>
   );
 }
+```
 
-function TodoList() {
+### Client-side Component
+
+Create a client-side component to interact with the todo list.
+
+```typescript
+// app/todolist.tsx
+"use client";
+
+import React, { useState } from "react";
+import { TodoActorKitContext } from "./context";
+
+export default function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
   const send = TodoActorKitContext.useSend();
+  const [newTodoText, setNewTodoText] = useState("");
 
-  // Implement your todo list UI here
+  const handleAddTodo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newTodoText.trim()) {
+      send({ type: "ADD_TODO", text: newTodoText.trim() });
+      setNewTodoText("");
+    }
+  };
+
   return (
-    <ul>
-      {todos.map((todo) => (
-        <li key={todo.id}>
-          {todo.text}
-          <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
-            {todo.completed ? "Undo" : "Complete"}
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div>
+      <h1>Todo List</h1>
+      <form onSubmit={handleAddTodo}>
+        <input
+          type="text"
+          value={newTodoText}
+          onChange={(e) => setNewTodoText(e.target.value)}
+          placeholder="Add a new todo"
+        />
+        <button type="submit">Add</button>
+      </form>
+      <ul>
+        {todos.map((todo) => (
+          <li key={todo.id}>
+            <span
+              style={{
+                textDecoration: todo.completed ? "line-through" : "none",
+              }}
+            >
+              {todo.text}
+            </span>
+            <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+              {todo.completed ? "Undo" : "Complete"}
+            </button>
+            <button onClick={() => send({ type: "DELETE_TODO", id: todo.id })}>
+              Delete
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 ```
@@ -186,7 +215,22 @@ Make sure to set the appropriate environment variables (`ACTOR_KIT_HOST`, `ACTOR
 
 ## API Reference
 
-### `actor-kit/fetch`
+### `actor-kit/worker`
+
+#### `createMachineServer(createMachine, eventSchemas, options?)`
+
+Creates an actor server to run on a Cloudflare Worker.
+
+- `createMachine`: Function that creates the state machine.
+- `eventSchemas`: Object containing Zod schemas for different event types.
+  - `client`: Schema for events from clients
+  - `service`: Schema for events from services
+- `options`: (Optional) Additional options for the server.
+  - `persisted`: Whether to persist the actor state (default: false)
+
+Returns an `ActorServer` class implementing the `Party.Server` interface.
+
+### `actor-kit/server`
 
 #### `createActorFetch<TMachine>(actorType)`
 
@@ -199,33 +243,43 @@ Returns a function `(props: object) => Promise<{ snapshot: CallerSnapshot, conne
 
 The returned fetch function takes the following props:
 
-- `id`: ID of the actor to fetch
+- `actorId`: ID of the actor to fetch
 - `callerId`: ID of the caller (typically a user id or identifier for a service)
 - `host`: (Optional) Override the default Actor Kit host (default: process.env.ACTOR_KIT_HOST)
 - `signingKey`: (Optional) Override the default Actor Kit signing key (default: process.env.ACTOR_KIT_SECRET)
+- `waitFor`: (Optional) A predicate function that waits for a specific condition to be met in the actor's state before returning
 
-### `actor-kit/server`
+#### `waitFor<TMachine>(predicate: (snapshot: CallerSnapshotFrom<TMachine>) => boolean, options?: WaitForOptions)`
 
-#### `createMachineServer(createMachine, eventSchemas, options?)`
+Creates a predicate function that can be passed to `createActorFetch` to wait for a specific condition in the actor's state.
 
-Creates an actor server for use with PartyKit.
+- `predicate`: A function that takes the current snapshot and returns a boolean indicating if the condition is met.
+- `options`: (Optional) Configuration options for the wait operation.
+  - `timeout`: Maximum time to wait (in milliseconds) before timing out.
+  - `interval`: Time between checks (in milliseconds).
 
-- `createMachine`: Function that creates the state machine.
-- `eventSchemas`: Object containing Zod schemas for different event types.
-  - `client`: Schema for events from clients
-  - `service`: Schema for events from services
-- `options`: (Optional) Additional options for the server.
-  - `persisted`: Whether to persist the actor state (default: false)
+Returns a function compatible with the `waitFor` option in `createActorFetch`.
 
-Returns an `ActorServer` class implementing the `Party.Server` interface.
+### `actor-kit/react`
+
+#### `createActorKitContext<TMachine>()`
+
+Creates a React context for Actor Kit integration.
+
+Returns an object with:
+
+- `Provider`: React component to provide the Actor Kit client.
+- `useClient()`: Hook to access the Actor Kit client directly.
+- `useSelector(selector)`: Hook to select and subscribe to state only when it changes.
+- `useSend()`: Hook to get a function for sending events to the Actor Kit client.
 
 ### `actor-kit/browser`
 
-#### `createActorKitClient<TClientEvent, TSnapshot>(options)`
+#### `createActorKitClient<TMachine>(props)`
 
 Creates an Actor Kit client for managing state and communication with the server.
 
-- `options`: Configuration options for the client.
+- `props`: Configuration options for the client.
   - `host: string`: Hostname of the PartyKit server.
   - `actorType: string`: Type of the actor (e.g., "todo", "player").
   - `actorId: string`: Unique identifier for the specific actor instance.
@@ -242,19 +296,6 @@ Returns an `ActorKitClient<TClientEvent, TSnapshot>` object with methods:
 - `send(event: TClientEvent): void`: Sends an event to the server.
 - `getState(): TSnapshot`: Returns the current state.
 - `subscribe(listener: (state: TSnapshot) => void): () => void`: Subscribes to state changes.
-
-### `actor-kit/react`
-
-#### `createActorKitContext<TClientEvent, TSnapshot>()`
-
-Creates a React context for Actor Kit integration.
-
-Returns an object with:
-
-- `Provider`: React component to provide the Actor Kit client.
-- `useClient()`: Hook to access the Actor Kit client directly.
-- `useSelector(selector)`: Hook to select and subscribe to state only when it changes.
-- `useSend()`: Hook to get a function for sending events to the Actor Kit client.
 
 ## Types
 

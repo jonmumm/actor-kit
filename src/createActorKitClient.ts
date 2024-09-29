@@ -1,65 +1,82 @@
+import { applyPatch } from "fast-json-patch";
+import { produce } from "immer";
 import PartySocket from "partysocket";
-import { applyPatch, Operation } from "fast-json-patch";
+import {
+  ActorKitStateMachine,
+  CallerSnapshotFrom,
+  UnwrapClientEvent,
+} from "./types";
 
-export type ActorKitClientOptions<TClientEvent, TSnapshot> = {
+export type ActorKitClientProps<TMachine extends ActorKitStateMachine> = {
   host: string;
   actorType: string;
   actorId: string;
   connectionId: string;
   connectionToken: string;
-  initialState: TSnapshot;
-  onStateChange?: (newState: TSnapshot) => void;
+  initialState: CallerSnapshotFrom<TMachine>;
+  onStateChange?: (newState: CallerSnapshotFrom<TMachine>) => void;
   onError?: (error: Error) => void;
 };
 
-export type ActorKitClient<TClientEvent, TSnapshot> = {
+export type ActorKitClient<TMachine extends ActorKitStateMachine> = {
   connect: () => Promise<void>;
   disconnect: () => void;
-  send: (event: TClientEvent) => void;
-  getState: () => TSnapshot;
-  subscribe: (listener: (state: TSnapshot) => void) => () => void;
+  send: (event: UnwrapClientEvent<TMachine>) => void;
+  getState: () => CallerSnapshotFrom<TMachine>;
+  subscribe: (
+    listener: (state: CallerSnapshotFrom<TMachine>) => void
+  ) => () => void;
 };
 
 type Listener<T> = (state: T) => void;
 
-export function createActorKitClient<TClientEvent, TSnapshot>(
-  options: ActorKitClientOptions<TClientEvent, TSnapshot>
-): ActorKitClient<TClientEvent, TSnapshot> {
-  let currentState = options.initialState;
+/**
+ * Creates an Actor Kit client for managing state and communication with the server.
+ *
+ * @template TMachine - The type of the state machine.
+ * @param {ActorKitClientProps<TMachine>} props - Configuration options for the client.
+ * @returns {ActorKitClient<TMachine>} An object with methods to interact with the actor.
+ */
+export function createActorKitClient<TMachine extends ActorKitStateMachine>(
+  props: ActorKitClientProps<TMachine>
+): ActorKitClient<TMachine> {
+  let currentState = props.initialState;
   let socket: PartySocket | null = null;
-  const listeners: Set<Listener<TSnapshot>> = new Set();
+  const listeners: Set<Listener<CallerSnapshotFrom<TMachine>>> = new Set();
 
   const notifyListeners = () => {
-    listeners.forEach(listener => listener(currentState));
+    listeners.forEach((listener) => listener(currentState));
   };
 
   const connect = async () => {
     socket = new PartySocket({
-      host: options.host,
-      party: options.actorType,
-      room: options.actorId,
-      protocol: getWebsocketServerProtocol(options.host),
-      id: options.connectionId,
-      query: { token: options.connectionToken },
+      host: props.host,
+      party: props.actorType,
+      room: props.actorId,
+      protocol: getWebsocketServerProtocol(props.host),
+      id: props.connectionId,
+      query: { token: props.connectionToken },
     });
 
     socket.addEventListener("message", (event: MessageEvent) => {
       try {
         const { operations } = JSON.parse(event.data);
-        currentState = applyPatch(currentState, operations).newDocument;
-        options.onStateChange?.(currentState);
+        currentState = produce(currentState, (draft) => {
+          applyPatch(draft, operations);
+        });
+        props.onStateChange?.(currentState);
         notifyListeners();
       } catch (error) {
-        options.onError?.(error as Error);
+        props.onError?.(error as Error);
       }
     });
 
     socket.addEventListener("error", (error) => {
-      options.onError?.(new Error("WebSocket error: " + error.toString()));
+      props.onError?.(new Error("WebSocket error: " + error.toString()));
     });
 
     socket.addEventListener("close", () => {
-      options.onError?.(new Error("WebSocket connection closed"));
+      props.onError?.(new Error("WebSocket connection closed"));
     });
 
     return new Promise<void>((resolve) => {
@@ -72,17 +89,19 @@ export function createActorKitClient<TClientEvent, TSnapshot>(
     socket = null;
   };
 
-  const send = (event: TClientEvent) => {
+  const send = (event: UnwrapClientEvent<TMachine>) => {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(event));
     } else {
-      options.onError?.(new Error("Cannot send event: WebSocket is not connected"));
+      props.onError?.(
+        new Error("Cannot send event: WebSocket is not connected")
+      );
     }
   };
 
   const getState = () => currentState;
 
-  const subscribe = (listener: Listener<TSnapshot>) => {
+  const subscribe = (listener: Listener<CallerSnapshotFrom<TMachine>>) => {
     listeners.add(listener);
     return () => {
       listeners.delete(listener);
