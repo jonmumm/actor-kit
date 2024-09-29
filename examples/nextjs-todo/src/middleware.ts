@@ -1,39 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
-// Remove unused import
-// import { serialize } from "cookie";
+import { NextRequest, NextResponse } from "next/server";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const ACCESS_TOKEN_COOKIE_KEY = "access-token";
 const REFRESH_TOKEN_COOKIE_KEY = "refresh-token";
-
-// Remove unused function
-// function parseSessionToken(request: NextRequest) { ... }
-
-async function createAccessToken(userId: string, sessionId: string) {
-  return await new SignJWT({ userId, sessionId })
-    .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime("15m")
-    .sign(new TextEncoder().encode(JWT_SECRET));
-}
-
-async function createRefreshToken(userId: string, sessionId: string) {
-  return await new SignJWT({ userId, sessionId })
-    .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime("7d")
-    .sign(new TextEncoder().encode(JWT_SECRET));
-}
-
-async function verifyToken(token: string) {
-  try {
-    const verified = await jwtVerify(token, new TextEncoder().encode(JWT_SECRET));
-    return verified.payload as { userId: string; sessionId: string };
-  } catch {
-    // Remove unused variable
-    // } catch (error) {
-    return null;
-  }
-}
 
 export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
@@ -113,4 +83,32 @@ function uuidv4() {
       v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+async function createAccessToken(userId: string, sessionId: string) {
+  return await new SignJWT({ userId, sessionId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("15m")
+    .sign(new TextEncoder().encode(JWT_SECRET));
+}
+
+async function createRefreshToken(userId: string, sessionId: string) {
+  return await new SignJWT({ userId, sessionId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("7d")
+    .sign(new TextEncoder().encode(JWT_SECRET));
+}
+
+async function verifyToken(token: string) {
+  try {
+    const verified = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET)
+    );
+    return verified.payload as { userId: string; sessionId: string };
+  } catch {
+    // Remove unused variable
+    // } catch (error) {
+    return null;
+  }
 }
