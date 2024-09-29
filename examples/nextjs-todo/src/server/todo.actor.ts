@@ -64,11 +64,8 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
       }),
     },
     guards: {
-      isOwner: ({ context, event }) => {
-        console.log({ context, event });
-
-        return event.caller.id === context.public.ownerId;
-      },
+      isOwner: ({ context, event }) =>
+        event.caller.id === context.public.ownerId,
     },
   }).createMachine({
     id,
