@@ -10,6 +10,7 @@
     "dev-server": "npx partykit dev"
   },
   "dependencies": {
+    "cookie": "^0.6.0",
     "next": "14.2.13",
     "partykit": "^0.0.111",
     "partysocket": "^1.0.2",
@@ -17,6 +18,7 @@
     "react-dom": "^18"
   },
   "devDependencies": {
+    "@types/cookie": "^0.6.0",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

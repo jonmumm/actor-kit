@@ -1,10 +1,8 @@
-import { jwtVerify, SignJWT } from "jose";
+import { SignJWT } from "jose";
 import type * as Party from "partykit/server";
 import type { AnyStateMachine } from "xstate";
 import { xstateMigrate } from "xstate-migrate";
 import { PERSISTED_SNAPSHOT_KEY } from "./constants";
-import { CallerStringSchema } from "./schemas";
-import { Caller } from "./types";
 
 /**
  * Loads a persisted snapshot from storage.
@@ -31,14 +29,14 @@ export const applyMigrations = (
 };
 
 export const createConnectionToken = async (
-  id: string,
+  actorId: string,
   connectionId: string,
   callerType: string,
   secret: string
 ) => {
   let signJWT = new SignJWT({})
     .setProtectedHeader({ alg: "HS256" })
-    .setSubject(id)
+    .setSubject(actorId)
     .setAudience(callerType)
     .setJti(connectionId)
     .setIssuedAt()

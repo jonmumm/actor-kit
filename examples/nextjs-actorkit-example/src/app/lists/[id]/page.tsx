@@ -10,6 +10,8 @@ export default async function TodoPage(props: { params: { id: string } }) {
   const listId = props.params.id;
   const userId = await getUserId();
 
+  console.log("MY USER ID!!!!!", userId);
+
   const payload = await fetchTodoActor({
     actorId: listId,
     callerId: userId,
@@ -19,7 +21,6 @@ export default async function TodoPage(props: { params: { id: string } }) {
     <TodoActorKitProvider
       options={{
         host: process.env.ACTOR_KIT_HOST!,
-        actorType: "todo",
         actorId: listId,
         connectionId: payload.connectionId,
         connectionToken: payload.connectionToken,

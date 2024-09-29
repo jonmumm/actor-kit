@@ -1,42 +1,78 @@
-// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
+import { SignJWT, jwtVerify } from "jose";
+// Remove unused import
+// import { serialize } from "cookie";
 
-// Helper function to parse the session token from cookies
-function parseSessionToken(request: NextRequest) {
-  const sessionToken = request.cookies.get("sessionToken")?.value;
-  if (sessionToken) {
-    const [userId, sessionId] = sessionToken.split(":");
-    return { userId, sessionId };
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+const ACCESS_TOKEN_COOKIE_KEY = "access-token";
+const REFRESH_TOKEN_COOKIE_KEY = "refresh-token";
+
+// Remove unused function
+// function parseSessionToken(request: NextRequest) { ... }
+
+async function createAccessToken(userId: string, sessionId: string) {
+  return await new SignJWT({ userId, sessionId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("15m")
+    .sign(new TextEncoder().encode(JWT_SECRET));
+}
+
+async function createRefreshToken(userId: string, sessionId: string) {
+  return await new SignJWT({ userId, sessionId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("7d")
+    .sign(new TextEncoder().encode(JWT_SECRET));
+}
+
+async function verifyToken(token: string) {
+  try {
+    const verified = await jwtVerify(token, new TextEncoder().encode(JWT_SECRET));
+    return verified.payload as { userId: string; sessionId: string };
+  } catch {
+    // Remove unused variable
+    // } catch (error) {
+    return null;
   }
-  return null;
 }
 
 export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
 
-  // Try to get existing session from cookie
-  const existingSession = parseSessionToken(request);
+  let userId: string | undefined;
+  let sessionId: string | undefined;
+  let newAccessToken: string | undefined;
+  let newRefreshToken: string | undefined;
 
-  let userId: string;
-  let sessionId: string;
-  let newSessionToken: string | undefined;
+  const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE_KEY)?.value;
+  const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE_KEY)?.value;
 
-  if (existingSession) {
-    // Use existing session
-    userId = existingSession.userId;
-    sessionId = existingSession.sessionId;
-  } else {
-    // Create new session
+  if (accessToken) {
+    const payload = await verifyToken(accessToken);
+    if (payload) {
+      userId = payload.userId;
+      sessionId = payload.sessionId;
+    }
+  }
+
+  if (!userId && refreshToken) {
+    const payload = await verifyToken(refreshToken);
+    if (payload) {
+      userId = payload.userId;
+      sessionId = payload.sessionId;
+      newAccessToken = await createAccessToken(userId, sessionId);
+    }
+  }
+
+  if (!userId || !sessionId) {
     userId = uuidv4();
     sessionId = uuidv4();
-    newSessionToken = `${userId}:${sessionId}`;
+    newAccessToken = await createAccessToken(userId, sessionId);
+    newRefreshToken = await createRefreshToken(userId, sessionId);
   }
 
   // Set headers
   requestHeaders.set("x-session-id", sessionId);
   requestHeaders.set("x-user-id", userId);
-
-  // Additional headers you might want
   requestHeaders.set("x-page-session-id", uuidv4());
   requestHeaders.set("x-url", request.url);
 
@@ -47,13 +83,23 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  // Set new session token as a cookie if it was created
-  if (newSessionToken) {
-    response.cookies.set("sessionToken", newSessionToken, {
+  // Set new tokens as cookies if they were created
+  if (newAccessToken) {
+    response.cookies.set(ACCESS_TOKEN_COOKIE_KEY, newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 60 * 60 * 24 * 7, // 1 week
+      maxAge: 15 * 60, // 15 minutes
+      path: "/",
+    });
+  }
+
+  if (newRefreshToken) {
+    response.cookies.set(REFRESH_TOKEN_COOKIE_KEY, newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60, // 7 days
       path: "/",
     });
   }

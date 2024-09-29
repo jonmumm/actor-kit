@@ -2,11 +2,12 @@ import type { CreateMachineProps } from "actor-kit";
 import { assign, setup } from "xstate";
 import type { TodoEvent } from "./todo.types";
 
-export const createTodoListMachine = ({ id }: CreateMachineProps) =>
+export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
   setup({
     types: {
       context: {} as {
         public: {
+          ownerId: string;
           todos: Array<{ id: string; text: string; completed: boolean }>;
           lastSync: number | null;
         };
@@ -62,11 +63,19 @@ export const createTodoListMachine = ({ id }: CreateMachineProps) =>
         },
       }),
     },
+    guards: {
+      isOwner: ({ context, event }) => {
+        console.log({ context, event });
+
+        return event.caller.id === context.public.ownerId;
+      },
+    },
   }).createMachine({
     id,
     type: "parallel",
     context: {
       public: {
+        ownerId: caller.id,
         todos: [],
         lastSync: null,
       },
@@ -83,12 +92,15 @@ export const createTodoListMachine = ({ id }: CreateMachineProps) =>
         on: {
           ADD_TODO: {
             actions: ["addTodo"],
+            guard: "isOwner",
           },
           TOGGLE_TODO: {
             actions: ["toggleTodo"],
+            guard: "isOwner",
           },
           DELETE_TODO: {
             actions: ["deleteTodo"],
+            guard: "isOwner",
           },
         },
       },

@@ -20,19 +20,24 @@ import type {
   UnwrapClientEvent,
 } from "./types";
 
-export function createActorKitContext<TMachine extends ActorKitStateMachine>() {
+export function createActorKitContext<TMachine extends ActorKitStateMachine>(
+  actorType: string
+) {
   const ActorKitContext = createContext<ActorKitClient<TMachine> | null>(null);
 
   const Provider: React.FC<{
     children: ReactNode;
-    options: ActorKitClientProps<TMachine>;
+    options: Omit<ActorKitClientProps<TMachine>, 'actorType'>;
   }> = ({ children, options }) => {
     const [client, setClient] = useState<ActorKitClient<TMachine> | null>(null);
     const clientRef = useRef<ActorKitClient<TMachine> | null>(null);
 
     useEffect(() => {
       if (!clientRef.current) {
-        const newClient = createActorKitClient<TMachine>(options);
+        const newClient = createActorKitClient<TMachine>({
+          ...options,
+          actorType,
+        });
         clientRef.current = newClient;
         newClient.connect().then(() => {
           setClient(newClient);

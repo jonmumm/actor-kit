@@ -1,14 +1,21 @@
 // app/todo/[id]/TodoList.tsx
 "use client";
 
-import React, { useState } from "react";
+import { UserContext } from "@/app/user-context";
+import React, { useContext, useState } from "react";
 import { TodoActorKitContext } from "./context";
 
 export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
-  console.log("todos", todos);
   const send = TodoActorKitContext.useSend();
   const [newTodoText, setNewTodoText] = useState("");
+
+  const userId = useContext(UserContext);
+  const ownerId = TodoActorKitContext.useSelector(
+    (state) => state.public.ownerId
+  );
+  const isOwner = ownerId === userId;
+  console.log({ ownerId, userId, isOwner });
 
   const handleAddTodo = (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,15 +28,17 @@ export function TodoList() {
   return (
     <div>
       <h1>Todo List</h1>
-      <form onSubmit={handleAddTodo}>
-        <input
-          type="text"
-          value={newTodoText}
-          onChange={(e) => setNewTodoText(e.target.value)}
-          placeholder="Add a new todo"
-        />
-        <button type="submit">Add</button>
-      </form>
+      {isOwner && (
+        <form onSubmit={handleAddTodo}>
+          <input
+            type="text"
+            value={newTodoText}
+            onChange={(e) => setNewTodoText(e.target.value)}
+            placeholder="Add a new todo"
+          />
+          <button type="submit">Add</button>
+        </form>
+      )}
       <ul>
         {todos.map((todo) => (
           <li key={todo.id}>

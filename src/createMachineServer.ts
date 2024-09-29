@@ -150,14 +150,6 @@ export const createMachineServer = <
     #connections: Map<string, Party.Connection> = new Map();
 
     constructor(public room: Party.Room) {
-      console.log(
-        "initiailzing",
-        room.id,
-        room.name,
-        room.internalID,
-        room.context
-      );
-      room.blockConcurrencyWhile;
       this.lastSnapshotsByConnectionId = new Map();
       this.callersByConnectionId = new Map();
       this.subscrptionsByConnectionId = new Map();
@@ -197,9 +189,6 @@ export const createMachineServer = <
             JSON.stringify(snapshot)
           );
           this.lastPersistedSnapshot = snapshot;
-          console.log("Snapshot persisted successfully");
-        } else {
-          console.log("No changes in snapshot, skipping persistence");
         }
       } catch (error) {
         console.error("Error persisting snapshot:", error);
@@ -262,6 +251,7 @@ export const createMachineServer = <
       const actor = this.#ensureActorRunning({ caller, inputJson });
       const connectionId = crypto.randomUUID();
       this.callersByConnectionId.set(connectionId, caller);
+      console.log(this.callersByConnectionId);
 
       const { ACTOR_KIT_SECRET } = EnvironmentSchema.parse(this.room.env);
       const connectionToken = await createConnectionToken(
@@ -281,14 +271,6 @@ export const createMachineServer = <
       const fullSnapshot = actor.getSnapshot();
       const snapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
       this.lastSnapshotsByConnectionId.set(connectionId, snapshot);
-      console.log("firstSnapshot", snapshot);
-      console.log("connectionId", connectionId);
-      console.log("roomId", this.room.id);
-      console.log(
-        "lastSnapshotsByConnectionId",
-        this.lastSnapshotsByConnectionId
-      );
-      console.log("callers", this.callersByConnectionId);
 
       return json({
         connectionId,
@@ -350,6 +332,7 @@ export const createMachineServer = <
         ACTOR_KIT_SECRET
       );
       assert(caller, "expected caller to be set");
+      console.log("CALLER FROM REQUEST", caller);
 
       if (request.method === "GET") {
         return this.#handleGetRequest(request, caller);
@@ -368,7 +351,6 @@ export const createMachineServer = <
       inputJson?: Record<string, unknown>;
     }) {
       if (!this.actor) {
-        console.log("actor not running, creating", this.room.id);
         const props = {
           id: this.room.id,
           caller,
@@ -399,23 +381,14 @@ export const createMachineServer = <
           "connectionId from token does not match connection id"
         );
 
-        const caller: Caller = {
-          id: payload.sub as string,
-          type: payload.aud as "client" | "service",
-        };
-
-        this.callersByConnectionId.set(connection.id, caller);
+        const caller = this.callersByConnectionId.get(connection.id);
+        assert(caller, "expected caller to be set");
+        // todo handle instances where caller doesnt exist yet...
 
         const actor = this.#ensureActorRunning({ caller });
 
         let lastSnapshot =
           this.lastSnapshotsByConnectionId.get(connection.id) || {};
-        console.log(
-          "lastSnapshotsByConnectionId1",
-          this.lastSnapshotsByConnectionId
-        );
-        console.log("callers", this.callersByConnectionId);
-        console.log("caller", caller);
         const sendSnapshot = (e?: any) => {
           assert(actor, "expected actor reference to exist");
           const fullSnapshot = actor.getSnapshot();
@@ -424,16 +397,7 @@ export const createMachineServer = <
             caller.id
           );
           const operations = compare(lastSnapshot, nextSnapshot);
-          console.log(
-            "lastSnapshotsByConnectionId",
-            this.lastSnapshotsByConnectionId
-          );
-          console.log("lastSnapshot", lastSnapshot);
-          console.log("nextSnapshot", nextSnapshot);
-          console.log("roomId", this.room.id);
           lastSnapshot = nextSnapshot;
-          console.log("connection", connection.id);
-          console.log("sending", operations);
           if (operations.length) {
             connection.send(JSON.stringify({ operations }));
           }
@@ -483,6 +447,7 @@ export const createMachineServer = <
       try {
         const parsedMessage = JSON.parse(message);
         const caller = this.callersByConnectionId.get(sender.id);
+        console.log({ caller, sender });
 
         if (!caller) {
           throw new Error(`No caller found for connection ID: ${sender.id}`);
@@ -496,7 +461,6 @@ export const createMachineServer = <
         } else {
           throw new Error(`Unsupported caller type: ${caller.type}`);
         }
-        console.log("parsedMessage", parsedMessage);
 
         const event = schema.parse(parsedMessage);
 
