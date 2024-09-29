@@ -269,7 +269,7 @@ Returns a function `(props: object) => Promise<{ snapshot: CallerSnapshot, conne
 
 ### `actor-kit/react`
 
-#### `createActorKitContext<TMachine>()`
+#### `createActorKitContext<TMachine>(actorType)`
 
 Creates a React context for Actor Kit integration.
 
