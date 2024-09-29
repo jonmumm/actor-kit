@@ -1,0 +1,9 @@
+{
+  "$schema": "https://www.partykit.io/schema.json",
+  "name": "actor-kit-examples-nextjs-todo",
+  "main": "src/server/main.ts",
+  "compatibilityDate": "2024-04-05",
+  "parties": {
+    "todo": "src/server/todo.server.ts"
+  }
+}

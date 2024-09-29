@@ -1,14 +1,54 @@
 {
   "compilerOptions": {
+    // Specify ECMAScript target version
     "target": "es2018",
-    "module": "commonjs",
+    
+    // Use ES Module syntax in output files
+    "module": "esnext",
+    
+    // Determine how modules get resolved
+    "moduleResolution": "node",
+    
+    // Generate corresponding .d.ts files
     "declaration": true,
+    
+    // Output directory for compiled files
     "outDir": "./dist",
+    
+    // Root directory of input files
+    "rootDir": "./src",
+    
+    // Enable all strict type checking options
     "strict": true,
+    
+    // Allow default imports from modules with no default export
     "esModuleInterop": true,
-    "noUncheckedIndexedAccess": true,
-    "rootDir": "./src"
+    
+    // Skip type checking of declaration files
+    "skipLibCheck": true,
+    
+    // Ensure consistent casing in file names
+    "forceConsistentCasingInFileNames": true,
+    
+    // Specify JSX code generation
+    "jsx": "react",
+    
+    // Generate corresponding .map files
+    "sourceMap": true,
+    
+    // List of library files to be included in the compilation
+    "lib": ["dom", "dom.iterable", "esnext"],
+    
+    // Allow JavaScript files to be compiled
+    "allowJs": true,
+    
+    // Allow importing JSON modules
+    "resolveJsonModule": true
   },
+  
+  // Specifies an array of glob patterns that match files to be included in compilation
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.test.ts"]
+  
+  // Specifies an array of glob patterns that match files to be excluded from compilation
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

@@ -1,11 +1,14 @@
 {
   "name": "actor-kit",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./server": "./dist/server.js"
+    "./browser": "./dist/browser.js",
+    "./server": "./dist/server.js",
+    "./react": "./dist/react.js",
+    "./worker": "./dist/worker.js"
   },
   "files": [
     "dist"
@@ -24,14 +27,20 @@
   "license": "ISC",
   "dependencies": {
     "fast-json-patch": "^3.1.1",
+    "immer": "^10.1.1",
     "jose": "^5.8.0",
     "partykit": "^0.0.110",
+    "partysocket": "^1.0.2",
+    "use-sync-external-store": "^1.2.2",
     "xstate": "^5.18.1",
     "xstate-migrate": "^0.0.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.5.4",
+    "@types/react": "^18.3.9",
+    "@types/use-sync-external-store": "^0.0.6",
+    "react": "^18.3.1",
     "typescript": "^5.6.2"
   }
 }
