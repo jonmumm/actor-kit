@@ -2,6 +2,8 @@
 
 Actor Kit is a powerful library for creating and managing actor-based state machines in Cloudflare Workers, leveraging XState for robust state management. It provides a comprehensive framework for handling different types of events from various sources and manages the lifecycle of actors in a distributed environment.
 
+For a practical implementation, check out our [Next.js Todo List Example](/examples/nextjs-todo) which demonstrates how to integrate Actor Kit with a Next.js application to create a real-time, event-driven todo list.
+
 ## 🚀 Installation
 
 To install Actor Kit, use your preferred package manager:

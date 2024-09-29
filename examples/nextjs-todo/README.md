@@ -103,8 +103,8 @@ The todo list state machine (`src/server/todo.actor.ts`) defines:
 
 1. Install dependencies:
 
-   ```
-   npm install
+   ```bash
+   npm install actor-kit xstate zod partykit
    ```
 
 2. Set up environment variables:
@@ -114,7 +114,7 @@ The todo list state machine (`src/server/todo.actor.ts`) defines:
 
 3. Start the Actor Kit development server:
 
-   ```
+   ```bash
    npm run dev-server
    ```
 
@@ -122,7 +122,7 @@ The todo list state machine (`src/server/todo.actor.ts`) defines:
 
 4. In a separate terminal, run the Next.js development server:
 
-   ```
+   ```bash
    npm run dev
    ```
 
@@ -140,3 +140,13 @@ The todo list state machine (`src/server/todo.actor.ts`) defines:
 - 🔄 **Seamless Synchronization**: Actor Kit handles state synchronization between server and clients.
 
 This example showcases how Actor Kit can be used to build complex, real-time applications with a clean separation of concerns and robust state management.
+
+## 🐛 Error Handling and Debugging
+
+Actor Kit provides built-in error handling for common issues. However, for more detailed debugging:
+
+1. Enable verbose logging by setting the `ACTOR_KIT_DEBUG` environment variable to `true`.
+2. Use the browser console to view client-side logs and errors.
+3. Check the PartyKit server logs for server-side issues.
+
+For more advanced debugging techniques, refer to our [debugging guide](https://docs.actor-kit.dev/debugging).
