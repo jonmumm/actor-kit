@@ -4,7 +4,7 @@ import PartySocket from "partysocket";
 import {
   ActorKitStateMachine,
   CallerSnapshotFrom,
-  UnwrapClientEvent,
+  ClientEventFrom,
 } from "./types";
 
 export type ActorKitClientProps<TMachine extends ActorKitStateMachine> = {
@@ -21,7 +21,7 @@ export type ActorKitClientProps<TMachine extends ActorKitStateMachine> = {
 export type ActorKitClient<TMachine extends ActorKitStateMachine> = {
   connect: () => Promise<void>;
   disconnect: () => void;
-  send: (event: UnwrapClientEvent<TMachine>) => void;
+  send: (event: ClientEventFrom<TMachine>) => void;
   getState: () => CallerSnapshotFrom<TMachine>;
   subscribe: (
     listener: (state: CallerSnapshotFrom<TMachine>) => void
@@ -89,7 +89,7 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
     socket = null;
   };
 
-  const send = (event: UnwrapClientEvent<TMachine>) => {
+  const send = (event: ClientEventFrom<TMachine>) => {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(event));
     } else {

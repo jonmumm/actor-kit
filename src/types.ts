@@ -102,7 +102,7 @@ export type CallerSnapshotFrom<TMachine extends AnyStateMachine> = {
   value: SnapshotFrom<TMachine> extends { value: infer V } ? V : unknown;
 };
 
-export type UnwrapClientEvent<T extends ActorKitStateMachine> = T extends StateMachine<any, infer TEvent, any, any, any, any, any, any, any, any, any, any, any, any>
+export type ClientEventFrom<T extends ActorKitStateMachine> = T extends StateMachine<any, infer TEvent, any, any, any, any, any, any, any, any, any, any, any, any>
   ? TEvent extends WithActorKitEvent<infer E, 'client'>
     ? E
     : never

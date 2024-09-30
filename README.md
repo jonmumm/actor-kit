@@ -29,7 +29,7 @@ pnpm add actor-kit xstate zod partykit
 
 ## 🛠️ Usage
 
-Here's a basic example of how to use Actor Kit to create a todo list application with Next.js, fetching data server-side:
+Here's a comprehensive example of how to use Actor Kit to create a todo list application with Next.js, fetching data server-side:
 
 ### 1. Define your state machine
 
@@ -37,43 +37,81 @@ Here's a basic example of how to use Actor Kit to create a todo list application
 // src/server/todo.actor.ts
 import type { CreateMachineProps } from "actor-kit";
 import { assign, setup } from "xstate";
+import type { TodoEvent } from "./todo.types";
 
-export const createTodoListMachine = ({ id }: CreateMachineProps) =>
+export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
   setup({
     types: {
       context: {} as {
         public: {
+          ownerId: string;
           todos: Array<{ id: string; text: string; completed: boolean }>;
           lastSync: number | null;
         };
         private: Record<string, { lastAccessTime?: Date }>;
       },
-      events: {} as
-        | { type: "ADD_TODO"; text: string }
-        | { type: "TOGGLE_TODO"; id: string }
-        | { type: "DELETE_TODO"; id: string },
+      events: {} as TodoEvent,
     },
     actions: {
       addTodo: assign({
-        public: ({ context, event }) => ({
-          ...context.public,
-          todos: [
-            ...context.public.todos,
-            { id: crypto.randomUUID(), text: event.text, completed: false },
-          ],
-          lastSync: Date.now(),
-        }),
+        public: ({ context, event }) => {
+          if (event.type !== "ADD_TODO") return context.public;
+          return {
+            ...context.public,
+            todos: [
+              ...context.public.todos,
+              { id: crypto.randomUUID(), text: event.text, completed: false },
+            ],
+            lastSync: Date.now(),
+          };
+        },
       }),
-      // ... other actions
+      toggleTodo: assign({
+        public: ({ context, event }) => {
+          if (event.type !== "TOGGLE_TODO") return context.public;
+          return {
+            ...context.public,
+            todos: context.public.todos.map((todo) =>
+              todo.id === event.id
+                ? { ...todo, completed: !todo.completed }
+                : todo
+            ),
+            lastSync: Date.now(),
+          };
+        },
+      }),
+      deleteTodo: assign({
+        public: ({ context, event }) => {
+          if (event.type !== "DELETE_TODO") return context.public;
+          return {
+            ...context.public,
+            todos: context.public.todos.filter((todo) => todo.id !== event.id),
+            lastSync: Date.now(),
+          };
+        },
+      }),
+    },
+    guards: {
+      isOwner: ({ context, event }) =>
+        event.caller.id === context.public.ownerId,
     },
   }).createMachine({
     id,
+    context: {
+      public: {
+        ownerId: caller.id,
+        todos: [],
+        lastSync: null,
+      },
+      private: {},
+    },
     initial: "idle",
     states: {
       idle: {
         on: {
-          ADD_TODO: { actions: "addTodo" },
-          // ... other transitions
+          ADD_TODO: { actions: "addTodo", guard: "isOwner" },
+          TOGGLE_TODO: { actions: "toggleTodo", guard: "isOwner" },
+          DELETE_TODO: { actions: "deleteTodo", guard: "isOwner" },
         },
       },
     },
@@ -104,10 +142,57 @@ const TodoListServer = createMachineServer(
 export default TodoListServer;
 ```
 
-### 3. Fetch data server-side
+### 3. Define your event schemas and types
 
 ```typescript
-// app/lists/[id]/page.tsx
+// src/server/todo.schemas.ts
+import { z } from "zod";
+
+export const TodoClientEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
+  z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
+  z.object({ type: z.literal("DELETE_TODO"), id: z.string() }),
+]);
+
+export const TodoServiceEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("SYNC_TODOS"),
+    todos: z.array(
+      z.object({ id: z.string(), text: z.string(), completed: z.boolean() })
+    ),
+  }),
+]);
+
+// src/server/todo.types.ts
+import type { WithActorKitEvent } from "actor-kit";
+import { z } from "zod";
+import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+
+export type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
+export type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
+
+export type TodoEvent =
+  | WithActorKitEvent<TodoClientEvent, "client">
+  | WithActorKitEvent<TodoServiceEvent, "service">;
+```
+
+### 4. Create the Actor Kit Context
+
+```typescript
+// src/app/lists/[id]/context.tsx
+"use client";
+
+import { TodoMachine } from "@/server/todo.actor";
+import { createActorKitContext } from "actor-kit/react";
+
+export const TodoActorKitContext = createActorKitContext<TodoMachine>("todo");
+export const TodoActorKitProvider = TodoActorKitContext.Provider;
+```
+
+### 5. Fetch data server-side
+
+```typescript
+// src/app/lists/[id]/page.tsx
 import { createActorFetch } from "actor-kit/server";
 import type { TodoMachine } from "../../../server/todo.actor";
 import { TodoList } from "./components";
@@ -140,7 +225,7 @@ export default async function TodoPage({ params }: { params: { id: string } }) {
 }
 ```
 
-### 4. Create a client-side component
+### 6. Create a client-side component
 
 ```typescript
 // app/lists/[id]/components.tsx
@@ -197,6 +282,17 @@ export function TodoList() {
   );
 }
 ```
+
+This comprehensive example demonstrates how to set up and use Actor Kit in a Next.js application, including:
+
+1. Defining the state machine with proper typing
+2. Setting up the Actor Server
+3. Creating event schemas and types
+4. Setting up the Actor Kit context
+5. Fetching data server-side
+6. Creating a client-side component that interacts with the actor
+
+By following this structure, you can create robust, type-safe, and real-time applications using Actor Kit and Next.js.
 
 ## 🚀 Getting Started
 
@@ -273,6 +369,9 @@ Returns a function `(props: object) => Promise<{ snapshot: CallerSnapshot, conne
 
 Creates a React context for Actor Kit integration.
 
+- `TMachine`: Type parameter representing the state machine type.
+- `actorType`: String identifier for the actor type.
+
 Returns an object with:
 
 - `Provider`: React component to provide the Actor Kit client.
@@ -300,7 +399,11 @@ Utility type to extract the caller-specific snapshot from a machine type.
 
 ### `ActorKitStateMachine`
 
-Type definition for an Actor Kit state machine, extending XState's `StateMachine` type.
+Type definition for an Actor Kit state machine, extending XState's `StateMachine` type. Requires public and private context types to be defined.
+
+### `ClientEventFrom<TMachine>`
+
+Utility type to extract client events from an Actor Kit state machine.
 
 ## 🔒 Public and Private Data
 

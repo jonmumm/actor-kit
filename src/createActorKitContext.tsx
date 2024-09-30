@@ -17,7 +17,7 @@ import { createActorKitClient } from "./createActorKitClient";
 import type {
   ActorKitStateMachine,
   CallerSnapshotFrom,
-  UnwrapClientEvent,
+  ClientEventFrom,
 } from "./types";
 
 export function createActorKitContext<TMachine extends ActorKitStateMachine>(
@@ -87,7 +87,7 @@ export function createActorKitContext<TMachine extends ActorKitStateMachine>(
     );
   };
 
-  function useSend(): (event: UnwrapClientEvent<TMachine>) => void {
+  function useSend(): (event: ClientEventFrom<TMachine>) => void {
     const client = useClient();
     return client.send;
   }
