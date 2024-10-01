@@ -368,6 +368,7 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
 
    ```bash
    npm install actor-kit xstate zod
+   npm install -D wrangler
    ```
 
 2. Set up environment variables:
@@ -384,20 +385,74 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
 
    [vars]
    ACTOR_KIT_SECRET = "your-secret-key"
+
+   # Durable Object bindings
+   [[durable_objects.bindings]]
+   name = "TodoActorKitServer"
+   class_name = "TodoActorKitServer"
+
+   # Durable Object migrations
+   [[migrations]]
+   tag = "v1"
+   new_classes = ["TodoActorKitServer"]
+
+   # If you're using a custom domain
+   # [env.production]
+   # routes = [
+   #   { pattern = "your-domain.com", custom_domain = true }
+   # ]
    ```
 
-   Note: Ensure that `ACTOR_KIT_SECRET` is kept secure and not exposed publicly.
+   Notes:
+   - Ensure that `ACTOR_KIT_SECRET` is kept secure and not exposed publicly.
+   - The `durable_objects.bindings` section creates a binding between your Worker and the Durable Object classes that implement your actor servers.
+   - The `migrations` section is necessary to create the Durable Object classes in your Cloudflare account.
+   - Uncomment and adjust the `routes` section if you're using a custom domain.
 
-4. Start the Cloudflare Worker development server:
+4. Create your Worker script (e.g., `src/worker.ts`):
+
+   ```typescript
+   import { createActorKitRouter } from "actor-kit/worker";
+   import { TodoActorKitServer } from "./todoActorServer";
+
+   const actorKitRouter = createActorKitRouter({
+     todo: TodoActorKitServer,
+   });
+
+   export default {
+     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+       const url = new URL(request.url);
+
+       // Handle Actor Kit routes
+       if (url.pathname.startsWith("/api/")) {
+         return actorKitRouter(request, env, ctx);
+       }
+
+       // Handle other routes or return a default response
+       return new Response("Hello World!");
+     },
+   };
+   ```
+
+5. Start the Cloudflare Worker development server:
 
    ```bash
    npx wrangler dev
    ```
 
-5. If you're using Next.js or another external server, run it in a separate terminal:
+6. Deploy your Worker to Cloudflare:
+
+   ```bash
+   npx wrangler deploy
+   ```
+
+7. If you're using Next.js or another external server, set up your `ACTOR_KIT_HOST` environment variable to point to your deployed Worker's URL, then run your development server:
+
    ```bash
    npm run dev
    ```
+
+By following these steps, you'll have set up your Cloudflare Worker with the necessary Durable Object bindings to run your Actor Kit servers, implemented the `createActorKitRouter` to handle routing to the appropriate Durable Objects, and deployed your Worker to Cloudflare's edge network.
 
 ## 📚 API Reference
 
