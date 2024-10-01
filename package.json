@@ -8,7 +8,7 @@
     "./browser": "./dist/browser.js",
     "./server": "./dist/server.js",
     "./react": "./dist/react.js",
-    "./partykit-adapter": "./dist/partykit-adapter.js"
+    "./worker": "./dist/worker.js"
   },
   "files": [
     "dist"
