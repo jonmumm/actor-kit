@@ -105,7 +105,7 @@ export type TodoEvent =
 Now that we have our event types defined, we can create our state machine:
 
 ```typescript
-// src/server/todo.actor.ts
+// src/server/createTodoListMachine.ts
 import type { CreateMachineProps } from "actor-kit";
 import { assign, setup } from "xstate";
 import type { TodoEvent } from "./todo.types";
@@ -172,9 +172,9 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
 Create the Actor Server using the `createMachineServer` function:
 
 ```typescript
-// src/server/todoActorServer.ts
+// src/server/todo.server.ts
 import { createMachineServer } from "actor-kit/worker";
-import { createTodoListMachine } from "./todo.actor";
+import { createTodoListMachine } from "./todo.machine";
 import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
 
 export const TodoActorKitServer = createMachineServer(
@@ -195,7 +195,7 @@ Create a `wrangler.toml` file in your project root:
 
 ```toml
 name = "todo-list-app"
-main = "src/worker.ts"
+main = "src/server/worker.ts"
 compatibility_date = "2023-12-22"
 
 [vars]
@@ -214,12 +214,12 @@ new_classes = ["TodoActorKitServer"]
 
 ### 5. Create a Cloudflare Worker with Actor Kit Router
 
-Create a new file, e.g., `src/worker.ts`, to set up your Cloudflare Worker:
+Create a new file, e.g., `src/server/worker.ts`, to set up your Cloudflare Worker:
 
 ```typescript
-// src/worker.ts
+// src/server/worker.ts
 import { createActorKitRouter } from "actor-kit/worker";
-import { TodoActorKitServer } from "./todoActorServer";
+import { TodoActorKitServer } from "./todo.server";
 
 const actorKitRouter = createActorKitRouter({
   todo: TodoActorKitServer,
@@ -250,7 +250,7 @@ export default {
 // src/app/lists/[id]/context.tsx
 "use client";
 
-import { TodoMachine } from "@/server/todo.actor";
+import type { TodoMachine } from "@/server/todo.machine";
 import { createActorKitContext } from "actor-kit/react";
 
 export const TodoActorKitContext = createActorKitContext<TodoMachine>("todo");
@@ -261,8 +261,8 @@ export const TodoActorKitProvider = TodoActorKitContext.Provider;
 
 ```typescript
 // src/app/lists/[id]/page.tsx
+import type { TodoMachine } from "../../../server/todo.machine";
 import { createActorFetch } from "actor-kit/server";
-import type { TodoMachine } from "../../../server/todo.actor";
 import { TodoList } from "./components";
 import { TodoActorKitProvider } from "./context";
 
@@ -404,6 +404,7 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
    ```
 
    Notes:
+
    - Ensure that `ACTOR_KIT_SECRET` is kept secure and not exposed publicly.
    - The `durable_objects.bindings` section creates a binding between your Worker and the Durable Object classes that implement your actor servers.
    - The `migrations` section is necessary to create the Durable Object classes in your Cloudflare account.
@@ -413,14 +414,18 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
 
    ```typescript
    import { createActorKitRouter } from "actor-kit/worker";
-   import { TodoActorKitServer } from "./todoActorServer";
+   import { TodoActorKitServer } from "./todo.server";
 
    const actorKitRouter = createActorKitRouter({
      todo: TodoActorKitServer,
    });
 
    export default {
-     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+     async fetch(
+       request: Request,
+       env: Env,
+       ctx: ExecutionContext
+     ): Promise<Response> {
        const url = new URL(request.url);
 
        // Handle Actor Kit routes
