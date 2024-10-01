@@ -381,7 +381,7 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
 
    ```toml
    name = "your-project-name"
-   main = "src/worker.ts"
+   main = "src/server/worker.ts"
    compatibility_date = "2023-12-22"
 
    [vars]
@@ -405,7 +405,7 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
    - The `migrations` section is necessary to create the Durable Object classes in your Cloudflare account.
    - Uncomment and adjust the `routes` section if you're using a custom domain.
 
-4. Create your Worker script (e.g., `src/worker.ts`):
+4. Create your Worker script (e.g., `src/server/worker.ts`):
 
    ```typescript
    import { createActorKitRouter } from "actor-kit/worker";
