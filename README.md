@@ -106,7 +106,7 @@ export type TodoEvent =
 Now that we have our event types defined, we can create our state machine:
 
 ```typescript
-// src/server/createTodoListMachine.ts
+// src/server/todo.machine.ts
 import type { CreateMachineProps } from "actor-kit";
 import { assign, setup } from "xstate";
 import type { TodoEvent } from "./todo.types";
