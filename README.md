@@ -177,18 +177,22 @@ const actorKitRouter = createActorKitRouter({
 });
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<Response> {
     const url = new URL(request.url);
-    
+
     // Handle Actor Kit routes
     if (url.pathname.startsWith("/api/")) {
       // ACTOR_KIT_SECRET is used internally here to verify incoming requests
       return actorKitRouter(request, env, ctx);
     }
-    
+
     // Handle other routes
     return new Response("Hello World!");
-  }
+  },
 };
 ```
 
@@ -410,12 +414,84 @@ Returns a function `(request: Request, env: Env, ctx: ExecutionContext) => Promi
 
 #### `createActorFetch<TMachine>(actorType)`
 
-Creates a function for fetching actor data. Used in a trusted server environment.
+Creates a function for fetching actor data. Used in a trusted server environment, typically for server-side rendering or initial data fetching.
 
 - `TMachine`: Type parameter representing the state machine type.
 - `actorType`: String identifier for the actor type.
 
-Returns a function `(props: object) => Promise<{ snapshot: CallerSnapshot, connectionId: string, connectionToken: string }>` that fetches a snapshot of the actor data.
+Returns a function with the following signature:
+
+```typescript
+(
+  props: {
+    actorId: string;
+    callerId: string;
+    host?: string;
+    signingKey?: string;
+    input?: Record<string, unknown>;
+    waitFor?: string;
+  },
+  options?: RequestInit
+) =>
+  Promise<{
+    snapshot: CallerSnapshotFrom<TMachine>;
+    connectionId: string;
+    connectionToken: string;
+  }>;
+```
+
+Parameters:
+
+- `props`: An object containing:
+  - `actorId`: Unique identifier for the specific actor instance.
+  - `callerId`: Identifier for the caller (usually a user ID).
+  - `host`: (Optional) The host URL for the Actor Kit server. Defaults to `process.env.ACTOR_KIT_HOST`.
+  - `signingKey`: (Optional) The signing key for creating access tokens. Defaults to `process.env.ACTOR_KIT_SECRET`.
+  - `input`: (Optional) Additional input data to send to the actor.
+  - `waitFor`: (Optional) A condition to wait for before returning the snapshot.
+- `options`: (Optional) Additional options to pass to the fetch request.
+
+Returns a Promise that resolves to an object containing:
+
+- `snapshot`: The current state of the actor, typed as `CallerSnapshotFrom<TMachine>`.
+- `connectionId`: A unique identifier for the connection.
+- `connectionToken`: An authentication token for the connection.
+
+Example usage:
+
+```typescript
+import { createActorFetch } from "actor-kit/server";
+import type { TodoMachine } from "./todo.machine";
+
+const fetchTodoActor = createActorFetch<TodoMachine>("todo");
+
+export async function getServerSideProps(context) {
+  const { id } = context.params;
+  const userId = "user-123"; // Replace with actual user ID logic
+
+  try {
+    const { snapshot, connectionId, connectionToken } = await fetchTodoActor({
+      actorId: id,
+      callerId: userId,
+      input: { initialTodos: [] },
+      waitFor: "TODOS_LOADED",
+    });
+
+    return {
+      props: {
+        initialState: snapshot,
+        connectionId,
+        connectionToken,
+      },
+    };
+  } catch (error) {
+    console.error("Failed to fetch todo actor:", error);
+    return { notFound: true };
+  }
+}
+```
+
+This function is crucial for server-side rendering and initial data fetching in server environments. It securely retrieves the actor's state and necessary connection information, which can then be passed to the client for seamless hydration and real-time updates.
 
 ### `actor-kit/browser`
 
@@ -482,15 +558,18 @@ Creates a React context and associated hooks for integrating Actor Kit into a Re
 Returns an object with the following components and hooks:
 
 - `Provider`: React component to provide the Actor Kit client to its children.
+
   - Props:
     - `children`: React nodes to be rendered inside the provider.
     - `options`: Configuration options for the Actor Kit client (same as `ActorKitClientProps`, excluding `actorType`).
 
 - `useClient()`: Hook to access the Actor Kit client directly.
+
   - Returns: The `ActorKitClient<TMachine>` instance.
   - Throws an error if used outside of the Provider.
 
 - `useSelector<T>(selector: (snapshot: CallerSnapshotFrom<TMachine>) => T)`: Hook to select and subscribe to specific parts of the state.
+
   - `selector`: A function that takes the current state snapshot and returns the desired subset of the state.
   - Returns: The selected part of the state, which will trigger a re-render only when the selected value changes.
 
