@@ -1,0 +1,26 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "remix-todo"
+compatibility_date = "2024-09-25"
+
+main = "./dist/index.js"
+assets = { directory = "./public" }
+
+[define]
+"process.env.REMIX_DEV_ORIGIN"= "'http://127.0.0.1:8002'"
+"process.env.REMIX_DEV_SERVER_WS_PORT"= "8002"
+
+[[durable_objects.bindings]]
+name = "TodoActorKitServer"
+class_name = "TodoActorKitServer"
+
+[[durable_objects.bindings]]
+name = "RemixServer"
+class_name = "RemixServer"
+
+
+ [[migrations]]
+tag = "v1" # Should be unique for each entry
+new_classes = ["SessionStorage", "RemixServer"]
+
+# [observability]
+# enabled = true

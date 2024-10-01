@@ -1,0 +1,43 @@
+{
+  "name": "remix-workers-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf dist && rm -rf public/dist",
+    "deploy": "npm run clean && remix build && wrangler deploy",
+    "dev": "remix dev --manual -c \"wrangler dev\"",
+    "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint .",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@remix-run/cloudflare": "^2.12.1",
+    "@remix-run/react": "^2.12.1",
+    "isbot": "^4.1.0",
+    "nanoid": "^5.0.7",
+    "partyserver": "^0.0.56",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "@remix-run/dev": "^2.12.1",
+    "@types/react": "^18.3.10",
+    "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.7.0",
+    "@typescript-eslint/parser": "^8.7.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.38.0",
+    "eslint-import-resolver-typescript": "^3.6.3",
+    "eslint-plugin-import": "^2.30.0",
+    "eslint-plugin-jsx-a11y": "^6.10.0",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.0",
+    "wrangler": "^3.78.12"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

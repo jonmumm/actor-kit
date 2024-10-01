@@ -30,6 +30,7 @@
     "immer": "^10.1.1",
     "jose": "^5.8.0",
     "partykit": "^0.0.110",
+    "partyserver": "^0.0.56",
     "partysocket": "^1.0.2",
     "use-sync-external-store": "^1.2.2",
     "xstate": "^5.18.1",
