@@ -276,6 +276,8 @@ export default async function TodoPage({ params }: { params: { id: string } }) {
   const payload = await fetchTodoActor({
     actorId: listId,
     callerId: userId,
+    host: process.env.ACTOR_KIT_HOST!,
+    signingKey: process.env.ACTOR_KIT_SECRET!,
   });
 
   return (
@@ -542,8 +544,8 @@ export async function getServerSideProps(context) {
     const { snapshot, connectionId, connectionToken } = await fetchTodoActor({
       actorId: id,
       callerId: userId,
-      input: { initialTodos: [] },
-      waitFor: "TODOS_LOADED",
+      host: process.env.ACTOR_KIT_HOST!,
+      signingKey: process.env.ACTOR_KIT_SECRET!,
     });
 
     return {

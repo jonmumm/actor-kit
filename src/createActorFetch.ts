@@ -15,8 +15,8 @@ export function createActorFetch<TMachine extends ActorKitStateMachine>(
     props: {
       actorId: string;
       callerId: string;
-      host?: string;
-      signingKey?: string;
+      host: string;
+      signingKey: string;
       input?: Record<string, unknown>;
       waitFor?: string; // Add this new parameter
     },
@@ -26,8 +26,8 @@ export function createActorFetch<TMachine extends ActorKitStateMachine>(
     connectionId: string;
     connectionToken: string;
   }> {
-    const host = props?.host ?? process.env.ACTOR_KIT_HOST;
-    const signingKey = props?.signingKey ?? process.env.ACTOR_KIT_SECRET;
+    const host = props.host;
+    const signingKey = props.signingKey;
     const input = props.input ?? {};
 
     if (!host) throw new Error("Actor Kit host is not defined");
@@ -44,11 +44,11 @@ export function createActorFetch<TMachine extends ActorKitStateMachine>(
     const route = getActorRoute(actorType, props.actorId);
     const protocol = getHttpProtocol(host);
     const url = new URL(`${protocol}://${host}${route}`);
-    
+
     // Add input and waitFor to URL parameters
-    url.searchParams.append('input', JSON.stringify(input));
+    url.searchParams.append("input", JSON.stringify(input));
     if (props.waitFor) {
-      url.searchParams.append('waitFor', props.waitFor);
+      url.searchParams.append("waitFor", props.waitFor);
     }
 
     console.log("url", url.toString());
@@ -67,7 +67,8 @@ export function createActorFetch<TMachine extends ActorKitStateMachine>(
     }
 
     const data = await response.json();
-    const { connectionId, snapshot, connectionToken } = ResponseSchema.parse(data);
+    const { connectionId, snapshot, connectionToken } =
+      ResponseSchema.parse(data);
 
     return {
       snapshot: snapshot as CallerSnapshotFrom<TMachine>,

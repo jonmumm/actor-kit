@@ -10,20 +10,23 @@ export default async function TodoPage(props: { params: { id: string } }) {
   const listId = props.params.id;
   const userId = await getUserId();
 
-  console.log("MY USER ID!!!!!", userId);
+  const host = process.env.ACTOR_KIT_HOST!;
+  const signingKey = process.env.ACTOR_KIT_SECRET!;
 
   const payload = await fetchTodoActor({
     actorId: listId,
     callerId: userId,
+    host,
+    signingKey, // Signing key stays on the server
   });
 
   return (
     <TodoActorKitProvider
       options={{
-        host: process.env.ACTOR_KIT_HOST!,
+        host,
         actorId: listId,
         connectionId: payload.connectionId,
-        connectionToken: payload.connectionToken,
+        connectionToken: payload.connectionToken, // One-time token used on client to get access to the actor
         initialState: payload.snapshot,
       }}
     >

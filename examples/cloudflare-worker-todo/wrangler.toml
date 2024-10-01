@@ -1,0 +1,14 @@
+name = "cloudflare-worker-todo"
+main = "src/server/worker.ts"
+compatibility_date = "2023-12-22"
+
+[vars]
+ACTOR_KIT_SECRET = "your-secret-key"
+
+[[durable_objects.bindings]]
+name = "TodoActorKitServer"
+class_name = "TodoActorKitServer"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["TodoActorKitServer"]
