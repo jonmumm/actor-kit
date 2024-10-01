@@ -2,6 +2,29 @@
 
 Actor Kit is a powerful library for creating and managing actor-based state machines in Cloudflare Workers, leveraging XState for robust state management. It provides a comprehensive framework for handling different types of events from various sources and manages the lifecycle of actors in a distributed environment.
 
+## Table of Contents
+
+- [🚀 Installation](#-installation)
+- [🌟 Key Concepts](#-key-concepts)
+- [🛠️ Usage](#️-usage)
+  - [1. Define your state machine](#1-define-your-state-machine)
+  - [2. Set up the Actor Server](#2-set-up-the-actor-server)
+  - [3. Create a Cloudflare Worker with Actor Kit Router](#3-create-a-cloudflare-worker-with-actor-kit-router)
+  - [4. Define your event schemas and types](#4-define-your-event-schemas-and-types)
+  - [5. Create the Actor Kit Context](#5-create-the-actor-kit-context)
+  - [6. Fetch data server-side](#6-fetch-data-server-side)
+  - [7. Create a client-side component](#7-create-a-client-side-component)
+- [🚀 Getting Started](#-getting-started-1)
+- [📚 API Reference](#-api-reference)
+  - [actor-kit/worker](#actor-kitworker)
+  - [actor-kit/server](#actor-kitserver)
+  - [actor-kit/browser](#actor-kitbrowser)
+  - [actor-kit/react](#actor-kitreact)
+- [🔑 Types](#-types)
+- [🔒 Public and Private Data](#-public-and-private-data)
+- [👥 Caller Types](#-caller-types)
+- [📄 License](#-license)
+
 For a practical implementation, check out our [Next.js Todo List Example](/examples/nextjs-todo) which demonstrates how to integrate Actor Kit with a Next.js application to create a real-time, event-driven todo list.
 
 ## 🚀 Installation
