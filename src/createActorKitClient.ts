@@ -44,10 +44,17 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
   let socket: PartySocket | null = null;
   const listeners: Set<Listener<CallerSnapshotFrom<TMachine>>> = new Set();
 
+  /**
+   * Notifies all registered listeners with the current state.
+   */
   const notifyListeners = () => {
     listeners.forEach((listener) => listener(currentState));
   };
 
+  /**
+   * Establishes a WebSocket connection to the Actor Kit server.
+   * @returns {Promise<void>} A promise that resolves when the connection is established.
+   */
   const connect = async () => {
     socket = new PartySocket({
       host: props.host,
@@ -84,11 +91,18 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
     });
   };
 
+  /**
+   * Closes the WebSocket connection to the Actor Kit server.
+   */
   const disconnect = () => {
     socket?.close();
     socket = null;
   };
 
+  /**
+   * Sends an event to the Actor Kit server.
+   * @param {ClientEventFrom<TMachine>} event - The event to send.
+   */
   const send = (event: ClientEventFrom<TMachine>) => {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(event));
@@ -99,8 +113,17 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
     }
   };
 
+  /**
+   * Retrieves the current state of the actor.
+   * @returns {CallerSnapshotFrom<TMachine>} The current state.
+   */
   const getState = () => currentState;
 
+  /**
+   * Subscribes a listener to state changes.
+   * @param {Listener<CallerSnapshotFrom<TMachine>>} listener - The listener function to be called on state changes.
+   * @returns {() => void} A function to unsubscribe the listener.
+   */
   const subscribe = (listener: Listener<CallerSnapshotFrom<TMachine>>) => {
     listeners.add(listener);
     return () => {
@@ -117,6 +140,11 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
   };
 }
 
+/**
+ * Checks if the given API host is a local address.
+ * @param {string} apiHost - The API host to check.
+ * @returns {boolean} True if the host is local, false otherwise.
+ */
 function isLocal(apiHost: string): boolean {
   return (
     apiHost.startsWith("localhost") ||
@@ -125,6 +153,11 @@ function isLocal(apiHost: string): boolean {
   );
 }
 
+/**
+ * Determines the appropriate WebSocket protocol based on the API host.
+ * @param {string} apiHost - The API host.
+ * @returns {"ws" | "wss"} The WebSocket protocol to use.
+ */
 function getWebsocketServerProtocol(apiHost: string): "ws" | "wss" {
   return isLocal(apiHost) ? "ws" : "wss";
 }

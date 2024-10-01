@@ -1,10 +1,11 @@
+import { DurableObject } from "@cloudflare/workers-types";
 import type * as Party from "partykit/server";
 import type { AnyStateMachine, SnapshotFrom, StateMachine } from "xstate";
 import type { z } from "zod";
 import type {
-    CallerSchema,
-    RequestInfoSchema,
-    SystemEventSchema,
+  CallerSchema,
+  RequestInfoSchema,
+  SystemEventSchema,
 } from "./schemas";
 
 export type Caller = z.infer<typeof CallerSchema>;
@@ -42,28 +43,27 @@ export type EventWithCaller = {
   [key: string]: unknown;
 };
 
-export type ActorKitStateMachine =
-  StateMachine<
-    {
-      public: any;
-      private: Record<string, any>;
-    } & {
-      [key: string]: unknown;
-    },
-    any, // event
-    any, // children
-    any, // actor
-    any, // action
-    any, // guard
-    any, // delay
-    any, // state value
-    any, // tag
-    CreateMachineProps, // input
-    any, // tag
-    any, // tag
-    any, // tag
-    any // output
-  >;
+export type ActorKitStateMachine = StateMachine<
+  {
+    public: any;
+    private: Record<string, any>;
+  } & {
+    [key: string]: unknown;
+  },
+  any, // event
+  any, // children
+  any, // actor
+  any, // action
+  any, // guard
+  any, // delay
+  any, // state value
+  any, // tag
+  CreateMachineProps, // input
+  any, // tag
+  any, // tag
+  any, // tag
+  any // output
+>;
 
 export type MachineServerOptions = {
   persisted?: boolean;
@@ -96,14 +96,37 @@ export type CallerSnapshotFrom<TMachine extends AnyStateMachine> = {
   public: SnapshotFrom<TMachine> extends { context: { public: infer P } }
     ? P
     : unknown;
-  private: SnapshotFrom<TMachine> extends { context: { private: Partial<Record<string, infer PR>> } }
+  private: SnapshotFrom<TMachine> extends {
+    context: { private: Partial<Record<string, infer PR>> };
+  }
     ? PR
     : unknown;
   value: SnapshotFrom<TMachine> extends { value: infer V } ? V : unknown;
 };
 
-export type ClientEventFrom<T extends ActorKitStateMachine> = T extends StateMachine<any, infer TEvent, any, any, any, any, any, any, any, any, any, any, any, any>
-  ? TEvent extends WithActorKitEvent<infer E, 'client'>
-    ? E
-    : never
-  : never;
+export type ClientEventFrom<T extends ActorKitStateMachine> =
+  T extends StateMachine<
+    any,
+    infer TEvent,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any
+  >
+    ? TEvent extends WithActorKitEvent<infer E, "client">
+      ? E
+      : never
+    : never;
+
+export interface ActorKitMachineServer extends DurableObject {
+  machine: ActorKitStateMachine;
+  // Add any other methods or properties specific to ActorKitServer
+}
