@@ -385,7 +385,7 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
    compatibility_date = "2023-12-22"
 
    [vars]
-   ACTOR_KIT_SECRET = "your-secret-key"
+   ACTOR_KIT_SECRET = "foo-bar-buzz-bar"
 
    # Durable Object bindings
    [[durable_objects.bindings]]
@@ -396,12 +396,6 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
    [[migrations]]
    tag = "v1"
    new_classes = ["TodoActorKitServer"]
-
-   # If you're using a custom domain
-   # [env.production]
-   # routes = [
-   #   { pattern = "your-domain.com", custom_domain = true }
-   # ]
    ```
 
    Notes:
@@ -717,12 +711,14 @@ Example usage:
 ```typescript
 import { WithActorKitEvent } from "actor-kit";
 
-type MyClientEvent = 
+type MyClientEvent =
   | { type: "ADD_TODO"; text: string }
   | { type: "TOGGLE_TODO"; id: string };
 
-type MyServiceEvent = 
-  | { type: "SYNC_TODOS"; todos: Array<{ id: string; text: string; completed: boolean }> };
+type MyServiceEvent = {
+  type: "SYNC_TODOS";
+  todos: Array<{ id: string; text: string; completed: boolean }>;
+};
 
 type MyEvent =
   | WithActorKitEvent<MyClientEvent, "client">
@@ -794,6 +790,7 @@ function TodoList({ snapshot }: { snapshot: TodoSnapshot }) {
 - `ClientEventFrom<TMachine>`: Utility type to extract client events from an Actor Kit state machine.
 
 By including these types in your Actor Kit implementation, you ensure type safety and proper handling of events and state across your application.
+
 ## 🔒 Public and Private Data
 
 Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information securely.
