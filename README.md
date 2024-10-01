@@ -54,7 +54,43 @@ pnpm add actor-kit xstate zod
 
 Here's a comprehensive example of how to use Actor Kit to create a todo list application with Next.js, fetching data server-side:
 
-### 1. Define your state machine
+### 1. Define your event schemas and types
+
+```typescript
+// src/server/todo.schemas.ts
+import { z } from "zod";
+
+export const TodoClientEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
+  z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
+  z.object({ type: z.literal("DELETE_TODO"), id: z.string() }),
+]);
+
+export const TodoServiceEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("SYNC_TODOS"),
+    todos: z.array(
+      z.object({ id: z.string(), text: z.string(), completed: z.boolean() })
+    ),
+  }),
+]);
+```
+
+```typescript
+// src/server/todo.types.ts
+import type { WithActorKitEvent } from "actor-kit";
+import { z } from "zod";
+import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+
+export type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
+export type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
+
+export type TodoEvent =
+  | WithActorKitEvent<TodoClientEvent, "client">
+  | WithActorKitEvent<TodoServiceEvent, "service">;
+```
+
+### 2. Define your state machine
 
 ```typescript
 // src/server/todo.actor.ts
@@ -143,7 +179,7 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
 export type TodoMachine = ReturnType<typeof createTodoListMachine>;
 ```
 
-### 2. Set up the Actor Server
+### 3. Set up the Actor Server
 
 ```typescript
 // src/server/todo.server.ts
