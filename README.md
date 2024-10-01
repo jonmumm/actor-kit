@@ -2,33 +2,33 @@
 
 Actor Kit is a powerful library for creating and managing actor-based state machines in Cloudflare Workers, leveraging XState for robust state management. It provides a comprehensive framework for handling different types of events from various sources and manages the lifecycle of actors in a distributed environment.
 
-## Table of Contents
+## 📚 Table of Contents
 
-- [🚀 Installation](#-installation)
+- [💾 Installation](#-installation)
 - [🌟 Key Concepts](#-key-concepts)
 - [🛠️ Usage](#️-usage)
-  - [1. Define your event schemas and types](#1-define-your-event-schemas-and-types)
-  - [2. Define your state machine](#2-define-your-state-machine)
-  - [3. Set up the Actor Server](#3-set-up-the-actor-server)
-  - [4. Configure Wrangler](#4-configure-wrangler)
-  - [5. Create a Cloudflare Worker with Actor Kit Router](#5-create-a-cloudflare-worker-with-actor-kit-router)
-  - [6. Create the Actor Kit Context](#6-create-the-actor-kit-context)
-  - [7. Fetch data server-side](#7-fetch-data-server-side)
-  - [8. Create a client-side component](#8-create-a-client-side-component)
-- [🚀 Getting Started](#-getting-started-1)
-- [📚 API Reference](#-api-reference)
-  - [actor-kit/worker](#actor-kitworker)
-  - [actor-kit/server](#actor-kitserver)
-  - [actor-kit/browser](#actor-kitbrowser)
-  - [actor-kit/react](#actor-kitreact)
-- [🔑 Types](#-types)
-- [🔒 Public and Private Data](#-public-and-private-data)
+  - [1️⃣ Define your event schemas and types](#1️⃣-define-your-event-schemas-and-types)
+  - [2️⃣ Define your state machine](#2️⃣-define-your-state-machine)
+  - [3️⃣ Set up the Actor Server](#3️⃣-set-up-the-actor-server)
+  - [4️⃣ Configure Wrangler](#4️⃣-configure-wrangler)
+  - [5️⃣ Create a Cloudflare Worker with Actor Kit Router](#5️⃣-create-a-cloudflare-worker-with-actor-kit-router)
+  - [6️⃣ Create the Actor Kit Context](#6️⃣-create-the-actor-kit-context)
+  - [7️⃣ Fetch data server-side](#7️⃣-fetch-data-server-side)
+  - [8️⃣ Create a client-side component](#8️⃣-create-a-client-side-component)
+- [🚀 Getting Started](#-getting-started)
+- [📖 API Reference](#-api-reference)
+  - [🔧 actor-kit/worker](#-actor-kitworker)
+  - [🖥️ actor-kit/server](#️-actor-kitserver)
+  - [🌐 actor-kit/browser](#-actor-kitbrowser)
+  - [⚛️ actor-kit/react](#️-actor-kitreact)
+- [🔑 TypeScript Types](#-typescript-types)
 - [👥 Caller Types](#-caller-types)
-- [📄 License](#-license)
+- [🔐 Public and Private Data](#-public-and-private-data)
+- [📜 License](#-license)
 
 For a practical implementation, check out our [Next.js Todo List Example](/examples/nextjs-todo) which demonstrates how to integrate Actor Kit with a Next.js application to create a real-time, event-driven todo list.
 
-## 🚀 Installation
+## 💾 Installation
 
 To install Actor Kit, use your preferred package manager:
 
@@ -44,7 +44,7 @@ pnpm add actor-kit xstate zod
 
 - 🖥️ **Server-Side Rendering**: Fetch initial state server-side for optimal performance and SEO.
 - ⚡ **Real-time Updates**: Changes are immediately reflected across all connected clients, ensuring a responsive user experience.
-- 🔒 **Type Safety**: Leverage TypeScript and Zod for robust type checking and runtime validation.
+- 🛡️ **Type Safety**: Leverage TypeScript and Zod for robust type checking and runtime validation.
 - 🎭 **Event-Driven Architecture**: All state changes are driven by events, providing a clear and predictable data flow.
 - 🧠 **State Machine Logic**: Powered by XState, making complex state management more manageable and visualizable.
 - 🔄 **Seamless Synchronization**: Actor Kit handles state synchronization between server and clients automatically.
@@ -55,7 +55,7 @@ pnpm add actor-kit xstate zod
 
 Here's a comprehensive example of how to use Actor Kit to create a todo list application with Next.js and Cloudflare Workers:
 
-### 1. Define your event schemas and types
+### 1️⃣ Define your event schemas and types
 
 First, define the schemas and types for your events:
 
@@ -101,7 +101,7 @@ export type TodoEvent =
   | ActorKitSystemEvent;
 ```
 
-### 2. Define your state machine
+### 2️⃣ Define your state machine
 
 Now that we have our event types defined, we can create our state machine:
 
@@ -168,7 +168,7 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
   });
 ```
 
-### 3. Set up the Actor Server
+### 3️⃣ Set up the Actor Server
 
 Create the Actor Server using the `createMachineServer` function:
 
@@ -190,7 +190,7 @@ export const TodoActorKitServer = createMachineServer(
 );
 ```
 
-### 4. Configure Wrangler
+### 4️⃣ Configure Wrangler
 
 Create a `wrangler.toml` file in your project root:
 
@@ -213,7 +213,7 @@ tag = "v1"
 new_classes = ["TodoActorKitServer"]
 ```
 
-### 5. Create a Cloudflare Worker with Actor Kit Router
+### 5️⃣ Create a Cloudflare Worker with Actor Kit Router
 
 Create a new file, e.g., `src/server/worker.ts`, to set up your Cloudflare Worker:
 
@@ -245,7 +245,7 @@ export default {
 };
 ```
 
-### 6. Create the Actor Kit Context
+### 6️⃣ Create the Actor Kit Context
 
 ```typescript
 // src/app/lists/[id]/context.tsx
@@ -258,7 +258,7 @@ export const TodoActorKitContext = createActorKitContext<TodoMachine>("todo");
 export const TodoActorKitProvider = TodoActorKitContext.Provider;
 ```
 
-### 7. Fetch data server-side
+### 7️⃣ Fetch data server-side
 
 ```typescript
 // src/app/lists/[id]/page.tsx
@@ -294,7 +294,7 @@ export default async function TodoPage({ params }: { params: { id: string } }) {
 }
 ```
 
-### 8. Create a client-side component
+### 8️⃣ Create a client-side component
 
 ```typescript
 // app/lists/[id]/components.tsx
@@ -454,9 +454,9 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
 
 By following these steps, you'll have set up your Cloudflare Worker with the necessary Durable Object bindings to run your Actor Kit servers, implemented the `createActorKitRouter` to handle routing to the appropriate Durable Objects, and deployed your Worker to Cloudflare's edge network.
 
-## 📚 API Reference
+## 📖 API Reference
 
-### `actor-kit/worker`
+### 🔧 `actor-kit/worker`
 
 #### `createMachineServer(createMachine, eventSchemas, options?)`
 
@@ -479,7 +479,7 @@ Creates a router for handling Actor Kit requests in a Cloudflare Worker.
 
 Returns a function `(request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>` that handles Actor Kit routing.
 
-### `actor-kit/server`
+### 🖥️ `actor-kit/server`
 
 #### `createActorFetch<TMachine>(actorType)`
 
@@ -562,7 +562,7 @@ export async function getServerSideProps(context) {
 
 This function is crucial for server-side rendering and initial data fetching in server environments. It securely retrieves the actor's state and necessary connection information, which can then be passed to the client for seamless hydration and real-time updates.
 
-### `actor-kit/browser`
+### 🌐 `actor-kit/browser`
 
 #### `createActorKitClient<TMachine>(props)`
 
@@ -615,7 +615,7 @@ client.disconnect();
 
 This client provides a high-level interface for interacting with Actor Kit actors, managing WebSocket connections, and handling state updates in browser environments.
 
-### `actor-kit/react`
+### ⚛️ `actor-kit/react`
 
 #### `createActorKitContext<TMachine>(actorType)`
 
@@ -791,10 +791,10 @@ function TodoList({ snapshot }: { snapshot: TodoSnapshot }) {
 
 By including these types in your Actor Kit implementation, you ensure type safety and proper handling of events and state across your application.
 
-## 🔒 Public and Private Data
+## 🔐 Public and Private Data
 
 Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information securely.
 
-## 📄 License
+## 📜 License
 
 Actor Kit is [MIT licensed](LICENSE.md).
