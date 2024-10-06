@@ -37,18 +37,20 @@
     "sourceMap": true,
 
     // List of library files to be included in the compilation
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext",
-    ],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "types": ["@cloudflare/workers-types"],
 
     // Allow JavaScript files to be compiled
     "allowJs": true,
 
     // Allow importing JSON modules
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+
+    "paths": {
+      "xstate": ["./node_modules/xstate"]
+    },
+
+    "preserveSymlinks": true
   },
 
   // Specifies an array of glob patterns that match files to be included in compilation

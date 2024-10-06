@@ -1,174 +1,197 @@
+// Import necessary dependencies and types
+import { DurableObject } from "cloudflare:workers";
 import { compare } from "fast-json-patch";
-import { jwtVerify } from "jose";
-import type * as Party from "partykit/server";
-import type {
-  Actor,
-  AnyStateMachine,
-  EventFrom,
-  SnapshotFrom,
-  Subscription,
-} from "xstate";
-import { createActor, waitFor } from "xstate";
-import type { z } from "zod";
-import { CallerTypes, PERSISTED_SNAPSHOT_KEY } from "./constants";
+import { Actor, createActor, SnapshotFrom, Subscription } from "xstate";
+import { z } from "zod";
+import { CallerSchema } from "./schemas";
 import {
-  CallerStringSchema,
-  EnvironmentSchema,
-  RequestInfoSchema,
-} from "./schemas";
-import type {
   ActorKitStateMachine,
+  ActorServer,
   Caller,
   CallerSnapshotFrom,
-  CloudFlareProps,
+  ClientEventFrom,
   CreateMachineProps,
   EventSchemas,
-  ExtraContext,
   MachineServerOptions,
+  ServiceEventFrom,
 } from "./types";
-import {
-  applyMigrations,
-  assert,
-  createConnectionToken,
-  json,
-  loadPersistedSnapshot,
-  notFound,
-  parseQueryParams,
-} from "./utils";
+import { assert, getCallerFromRequest } from "./utils";
+
+// Define schemas for storage and WebSocket attachments
+const StorageSchema = z.object({
+  actorType: z.string(),
+  actorId: z.string(),
+  initialCaller: CallerSchema,
+});
+
+const WebSocketAttachmentSchema = z.object({
+  caller: CallerSchema,
+});
+type WebSocketAttachment = z.infer<typeof WebSocketAttachmentSchema>;
 
 /**
- * createMachineServer
- *
- * This function creates a server for managing actor-based state machines.
- * It provides a framework for handling different types of events from various sources
- * and manages the lifecycle of the actor.
- *
- * @param createMachine A function that creates the state machine. It receives:
- *   - props: An object of type CreateMachineProps, containing id, caller, and any additional properties
- *
- * @param eventSchemas An object containing Zod schemas for different event types:
- *   - client: Schema for events originating from end-users or client applications
- *   - service: Schema for events from trusted external services or internal microservices
- *   - output: Schema for output events that are broadcast to all connected clients
- *   Note: System events are defined internally by Actor Kit and should not be provided here.
- *
- * @param options An optional object containing additional options for the server:
- *   - persisted: A boolean indicating whether the actor's state should be persisted (default: false)
- *
- * @returns An ActorServer class that implements the Party.Server interface
- *
- * Usage Example:
- *
- * import { z } from 'zod';
- * import { createMachineServer } from './createMachineServer';
- *
- * // Define client event schema
- * const clientEventSchema = z.discriminatedUnion('type', [
- *   z.object({ type: z.literal('FORM_SUBMIT'), formData: z.record(z.string()) }),
- *   z.object({ type: z.literal('PAGE_LOADING') }),
- *   z.object({ type: z.literal('PAGE_LOADED') }),
- *   z.object({ type: z.literal('BUTTON_PRESS'), buttonId: z.string() }),
- *   z.object({ type: z.literal('CONNECT') }),
- * ]);
- *
- * // Define service event schema
- * const serviceEventSchema = z.discriminatedUnion('type', [
- *   z.object({ type: z.literal('AUTHENTICATE'), userId: z.string() }),
- *   z.object({ type: z.literal('DATA_SYNC'), data: z.record(z.unknown()) }),
- *   z.object({
- *     type: z.literal('PUSH_NOTIFICATION_RECEIVED'),
- *     notificationId: z.string(),
- *     message: z.string(),
- *     timestamp: z.number()
- *   }),
- * ]);
- *
- * // Define output event schema
- * const outputEventSchema = z.discriminatedUnion('type', [
- *   z.object({ type: z.literal('BROADCAST_MESSAGE'), message: z.string() }),
- *   z.object({ type: z.literal('UPDATE_STATUS'), status: z.string() }),
- * ]);
- *
- * // Define your machine creation function
- * const createMyMachine = (props: CreateMachineProps) => createMachine({
- *   id: `myMachine-${props.id}`,
- *   initial: 'idle',
- *   context: {
- *     caller: props.caller,
- *     notifications: [],
- *     // other context properties
- *   },
- *   states: {
- *     idle: {
- *       on: {
- *         CONNECT: 'connected',
- *         // other transitions
- *       }
- *     },
- *     connected: {
- *       on: {
- *         PUSH_NOTIFICATION_RECEIVED: {
- *           actions: assign({
- *             notifications: (context, event) => [...context.notifications, event]
- *           })
- *         }
- *       }
- *     },
- *     // other states
- *   }
- * });
- *
- * // Create the actor server
- * const MyActorServer = createMachineServer(
- *   createMyMachine,
- *   {
- *     client: clientEventSchema,
- *     service: serviceEventSchema,
- *     output: outputEventSchema,
- *   },
- *   { persisted: true } // enable persistence
- * );
+ * Creates a MachineServer class that extends DurableObject and implements ActorServer.
+ * This function is the main entry point for creating a machine server.
  */
-
 export const createMachineServer = <
   TMachine extends ActorKitStateMachine,
-  TEventSchemas extends EventSchemas
->(
-  createMachine: (props: CreateMachineProps) => TMachine,
-  eventSchemas: TEventSchemas,
-  options?: MachineServerOptions
-) => {
-  const { persisted = false } = options || {};
-
-  class ActorServer implements Party.Server {
+  TEventSchemas extends EventSchemas,
+  Env extends { ACTOR_KIT_SECRET: string }
+>({
+  createMachine,
+  eventSchemas,
+  options,
+}: {
+  createMachine: (props: CreateMachineProps) => TMachine;
+  eventSchemas: TEventSchemas;
+  options?: MachineServerOptions;
+}): new (
+  state: DurableObjectState,
+  env: Env,
+  ctx: ExecutionContext
+) => ActorServer<TMachine, TEventSchemas, Env> =>
+  class MachineServerImpl
+    extends DurableObject
+    implements ActorServer<TMachine, TEventSchemas, Env>
+  {
+    // Class properties
     actor: Actor<TMachine> | undefined;
-    lastSnapshotsByConnectionId: Map<string, CallerSnapshotFrom<TMachine>>;
-    callersByConnectionId: Map<string, Caller>;
-    subscrptionsByConnectionId: Map<string, Subscription>;
+    actorType: string | undefined;
+    actorId: string | undefined;
+    input: Record<string, unknown> | undefined;
+    initialCaller: Caller | undefined;
     lastPersistedSnapshot: SnapshotFrom<TMachine> | null = null;
-    extraContext: ExtraContext | undefined;
-    #connections: Map<string, Party.Connection> = new Map();
+    lastSnapshotChecksum: string | null = null;
+    snapshotCache: Map<string, { snapshot: SnapshotFrom<TMachine>, timestamp: number }> = new Map();
+    state: DurableObjectState;
+    storage: DurableObjectStorage;
+    attachments: Map<WebSocket, WebSocketAttachment>;
+    subscriptions: Map<WebSocket, Subscription>;
+    env: Env;
+    currentChecksum: string | null = null;
 
-    constructor(public room: Party.Room) {
-      this.lastSnapshotsByConnectionId = new Map();
-      this.callersByConnectionId = new Map();
-      this.subscrptionsByConnectionId = new Map();
+    /**
+     * Constructor for the MachineServerImpl class.
+     * Initializes the server and sets up WebSocket connections.
+     */
+    constructor(state: DurableObjectState, env: Env, ctx: ExecutionContext) {
+      super(state, env);
+      this.state = state;
+      this.storage = state.storage;
+      this.env = env;
+      this.attachments = new Map();
+      this.subscriptions = new Map();
+
+      // Set up WebSocket attachments
+      this.state.getWebSockets().forEach((ws) => {
+        const attachment = WebSocketAttachmentSchema.parse(
+          ws.deserializeAttachment()
+        );
+        this.attachments.set(ws, attachment);
+      });
+
+      // Initialize actor data from storage
+      this.state.blockConcurrencyWhile(async () => {
+        const [actorType, actorId, initialCallerString, inputString] =
+          await Promise.all([
+            this.storage.get("actorType"),
+            this.storage.get("actorId"),
+            this.storage.get("initialCaller"),
+            this.storage.get("input"),
+          ]);
+
+        if (actorType && actorId && initialCallerString && inputString) {
+          try {
+            const parsedData = StorageSchema.parse({
+              actorType,
+              actorId,
+              initialCaller: JSON.parse(
+                initialCallerString as string
+              ) as Caller,
+            });
+
+            this.actorType = parsedData.actorType;
+            this.actorId = parsedData.actorId;
+            this.initialCaller = parsedData.initialCaller;
+            this.input = JSON.parse(inputString as string);
+            // Ensure the actor is running
+            this.#ensureActorRunning();
+          } catch (error) {
+            console.error("Failed to parse stored data:", error);
+          }
+        }
+      });
+
+      this.#startPeriodicCacheCleanup();
     }
 
-    setExtraContext(context: ExtraContext) {
-      this.extraContext = context;
+    /**
+     * Ensures that the actor is running. If not, it creates and initializes the actor.
+     * @private
+     */
+    #ensureActorRunning() {
+      assert(this.actorId, "actorId is not set");
+      assert(this.actorType, "actorType is not set");
+      assert(this.input, "input is not set");
+      assert(this.initialCaller, "initialCaller is not set");
+
+      if (!this.actor) {
+        const props = {
+          id: this.actorId,
+          caller: this.initialCaller,
+          ...this.input,
+        } as CreateMachineProps;
+        this.actor = this.#createAndInitializeActor(props);
+
+        // Set up subscription to send diffs to clients
+        // We don't worry about the unsubscribe here because
+        // we know this is only run once per instance lifetime...
+        this.actor.subscribe(() => {
+          const fullSnapshot = this.actor!.getSnapshot();
+          const checksum = this.#calculateChecksum(fullSnapshot);
+          this.currentChecksum = checksum;  // Add this line
+          this.snapshotCache.set(checksum, { snapshot: fullSnapshot, timestamp: Date.now() });
+          this.#scheduleSnapshotCacheCleanup(checksum);
+          
+          let lastCallerSnapshot: CallerSnapshotFrom<TMachine> | {};
+          this.attachments.forEach((attachment, ws) => {
+            const { caller } = attachment;
+
+            const nextSnapshot = this.#createCallerSnapshot(
+              fullSnapshot,
+              caller.id
+            );
+
+            const operations = compare(lastCallerSnapshot, nextSnapshot);
+
+            if (operations.length) {
+              ws.send(JSON.stringify({ operations, checksum }));
+            }
+            lastCallerSnapshot = nextSnapshot;
+          });
+        });
+      }
+      return this.actor;
     }
 
+    /**
+     * Creates and initializes an actor with the given properties.
+     * @private
+     */
     #createAndInitializeActor(props: CreateMachineProps) {
       const machine = createMachine({ ...props } as any);
       const actor = createActor(machine, { input: props } as any);
-      if (persisted) {
+      if (options?.persisted) {
         this.#setupStatePersistence(actor);
       }
       actor.start();
       return actor;
     }
 
+    /**
+     * Sets up state persistence for the actor if the persisted option is enabled.
+     * @private
+     */
     #setupStatePersistence(actor: Actor<TMachine>) {
       actor.subscribe((state) => {
         const fullSnapshot = actor.getSnapshot();
@@ -178,16 +201,21 @@ export const createMachineServer = <
       });
     }
 
+    /**
+     * Persists the given snapshot if it's different from the last persisted snapshot.
+     * @private
+     */
     async #persistSnapshot(snapshot: SnapshotFrom<TMachine>) {
       try {
         if (
           !this.lastPersistedSnapshot ||
           compare(this.lastPersistedSnapshot, snapshot).length > 0
         ) {
-          await this.room.storage.put(
-            PERSISTED_SNAPSHOT_KEY,
-            JSON.stringify(snapshot)
-          );
+          // TODO: Implement actual persistence logic
+          // await this.room.storage.put(
+          //   PERSISTED_SNAPSHOT_KEY,
+          //   JSON.stringify(snapshot)
+          // );
           this.lastPersistedSnapshot = snapshot;
         }
       } catch (error) {
@@ -195,6 +223,208 @@ export const createMachineServer = <
       }
     }
 
+    /**
+     * Handles incoming HTTP requests and sets up WebSocket connections.
+     */
+    async fetch(request: Request): Promise<Response> {
+      const actor = this.actor;
+      assert(this.actorType, "actorType is not set");
+      assert(this.actorId, "actorId is not set");
+      assert(actor, "actor is not set");
+
+      const webSocketPair = new WebSocketPair();
+      const [client, server] = Object.values(webSocketPair);
+
+      let caller: Caller | undefined;
+      try {
+        caller = await getCallerFromRequest(
+          request,
+          this.actorType,
+          this.actorId,
+          this.env.ACTOR_KIT_SECRET
+        );
+      } catch (error: any) {
+        return new Response(`Error: ${error.message}`, { status: 401 });
+      }
+
+      if (!caller) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      this.state.acceptWebSocket(server);
+      this.attachments.set(server, { caller });
+
+      // Parse the checksum from the request, if provided
+      const url = new URL(request.url);
+      const clientChecksum = url.searchParams.get("checksum");
+
+      const fullSnapshot = actor.getSnapshot();
+      const currentChecksum = this.#calculateChecksum(fullSnapshot);
+
+      let lastSnapshot = {};
+      if (clientChecksum) {
+        const cachedData = this.snapshotCache.get(clientChecksum);
+        if (cachedData) {
+          lastSnapshot = this.#createCallerSnapshot(cachedData.snapshot, caller.id);
+        }
+        // Schedule cleanup for this checksum
+        this.#scheduleSnapshotCacheCleanup(clientChecksum);
+      }
+
+      // Send initial diff if necessary
+      if (!clientChecksum || clientChecksum !== currentChecksum) {
+        const initialNextSnapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
+        const initialOperations = compare(lastSnapshot, initialNextSnapshot);
+
+        if (initialOperations.length) {
+          server.send(JSON.stringify({ operations: initialOperations, checksum: currentChecksum }));
+        }
+        lastSnapshot = initialNextSnapshot;
+      }
+
+      const sub = actor.subscribe(() => {
+        assert(actor, "actor is not running");
+        const fullSnapshot = actor.getSnapshot();
+        const checksum = this.#calculateChecksum(fullSnapshot);
+        const nextSnapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
+        const operations = compare(lastSnapshot, nextSnapshot);
+
+        if (operations.length) {
+          server.send(JSON.stringify({ operations, checksum }));
+        }
+        // Update lastSnapshot for future comparisons
+        lastSnapshot = nextSnapshot;
+      });
+      this.subscriptions.set(server, sub);
+
+      console.log("[MachineServerImpl] WebSocket connection accepted");
+      return new Response(null, {
+        status: 101,
+        webSocket: client,
+      });
+    }
+
+    /**
+     * Handles incoming WebSocket messages.
+     */
+    async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string) {
+      const attachment = this.attachments.get(ws);
+      assert(attachment, "Attachment missing for WebSocket");
+
+      let event: ClientEventFrom<TMachine> | ServiceEventFrom<TMachine>;
+
+      const { caller } = attachment;
+      if (caller.type === "client") {
+        const clientEvent = eventSchemas.client.parse(
+          JSON.parse(message as string)
+        );
+        event = {
+          ...clientEvent,
+          caller,
+        } as ClientEventFrom<TMachine>;
+      } else if (caller.type === "service") {
+        const serviceEvent = eventSchemas.client.parse(
+          JSON.parse(message as string)
+        );
+        event = {
+          ...serviceEvent,
+          caller,
+        } as ClientEventFrom<TMachine>;
+      } else {
+        throw new Error(`Unknown caller type: ${caller.type}`);
+      }
+
+      this.send(event);
+    }
+
+    /**
+     * Handles WebSocket errors.
+     */
+    async webSocketError(ws: WebSocket, error: Error) {
+      console.error(
+        "[MachineServerImpl] WebSocket error:",
+        error.message,
+        error.stack
+      );
+    }
+
+    /**
+     * Handles WebSocket closure.
+     */
+    async webSocketClose(
+      ws: WebSocket,
+      code: number,
+      reason: string,
+      wasClean: boolean
+    ) {
+      ws.close(code, "Durable Object is closing WebSocket");
+      // Remove the subscription for the socket
+      const subscription = this.subscriptions.get(ws);
+      if (subscription) {
+        subscription.unsubscribe();
+        this.subscriptions.delete(ws);
+      }
+      // Remove the attachment for the socket
+      this.attachments.delete(ws);
+    }
+
+    /**
+     * Sends an event to the actor.
+     */
+    send(event: ClientEventFrom<TMachine> | ServiceEventFrom<TMachine>): void {
+      assert(this.actor, "Actor is not running");
+      this.actor.send(event);
+    }
+
+    /**
+     * Retrieves a snapshot of the actor's state for a specific caller.
+     * @param caller The caller requesting the snapshot.
+     * @returns An object containing the caller-specific snapshot and a checksum for the full snapshot.
+     */
+    getSnapshot(caller: Caller) {
+      assert(this.actor, "Actor is not running");
+      const fullSnapshot = this.actor.getSnapshot();
+
+      const checksum = this.#calculateChecksum(fullSnapshot);
+      this.snapshotCache.set(checksum, { snapshot: fullSnapshot, timestamp: Date.now() });
+
+      // Schedule cleanup for this checksum
+      this.#scheduleSnapshotCacheCleanup(checksum);
+
+      const snapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
+      return {
+        snapshot,
+        checksum,
+      };
+    }
+
+    /**
+     * Calculates a checksum for the given snapshot.
+     * @private
+     */
+    #calculateChecksum(snapshot: SnapshotFrom<TMachine>): string {
+      const snapshotString = JSON.stringify(snapshot);
+      return this.#hashString(snapshotString);
+    }
+
+    /**
+     * Generates a simple hash for a given string.
+     * @private
+     */
+    #hashString(str: string): string {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = (hash << 5) - hash + char;
+        hash = hash & hash; // Convert to 32-bit integer
+      }
+      return hash.toString(16); // Convert to hexadecimal
+    }
+
+    /**
+     * Creates a caller-specific snapshot from the full snapshot.
+     * @private
+     */
     #createCallerSnapshot(
       fullSnapshot: SnapshotFrom<TMachine>,
       callerId: string
@@ -210,353 +440,67 @@ export const createMachineServer = <
       };
     }
 
-    async #initializePersistedActor() {
-      const parsedSnapshot = await loadPersistedSnapshot(this.room.storage);
-      if (!parsedSnapshot) return;
-
-      const systemCaller: Caller = { id: this.room.id, type: "system" };
-      const machine = createMachine({
-        id: this.room.id,
-        caller: systemCaller,
-      });
-      const restoredSnapshot = applyMigrations(machine, parsedSnapshot);
-
-      this.actor = createActor(machine, {
-        snapshot: restoredSnapshot,
-        input: { id: this.room.id, caller: systemCaller } as any,
-      });
-      this.actor.start();
-
-      // Send RESUME event with system as the caller
-      this.actor.send({
-        type: "RESUME",
-        caller: systemCaller,
-      } as any);
-
-      this.#setupStatePersistence(this.actor);
-    }
-
-    async onStart() {
-      if (persisted) {
-        await this.#initializePersistedActor();
-      }
-    }
-
-    async #handleGetRequest(request: Party.Request, caller: Caller) {
-      const params = parseQueryParams(request.url);
-      const inputJsonString = params.get("input");
-      const inputJson = inputJsonString ? JSON.parse(inputJsonString) : {};
-      const waitForState = params.get("waitFor");
-
-      const actor = this.#ensureActorRunning({ caller, inputJson });
-      const connectionId = crypto.randomUUID();
-      this.callersByConnectionId.set(connectionId, caller);
-      console.log(this.callersByConnectionId);
-
-      const { ACTOR_KIT_SECRET } = EnvironmentSchema.parse(this.room.env);
-      const connectionToken = await createConnectionToken(
-        this.room.id,
-        connectionId,
-        caller.type,
-        ACTOR_KIT_SECRET
-      );
-
-      if (waitForState) {
-        await waitFor(actor, (state) => {
-          const anyState = state as SnapshotFrom<AnyStateMachine>;
-          return anyState.matches(waitForState);
-        });
-      }
-
-      const fullSnapshot = actor.getSnapshot();
-      const snapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
-      this.lastSnapshotsByConnectionId.set(connectionId, snapshot);
-
-      return json({
-        connectionId,
-        connectionToken,
-        snapshot,
-      });
-    }
-
-    async #handleEvent(
-      event: any,
-      caller: Caller,
-      schema:
-        | z.ZodDiscriminatedUnion<
-            "type",
-            [z.ZodObject<any>, ...z.ZodObject<any>[]]
-          >
-        | z.ZodObject<z.ZodRawShape & { type: z.ZodLiteral<string> }>,
-      cf?: CloudFlareProps
-    ) {
-      const parsedEvent = schema.parse(event);
-      this.#sendEventToActor(parsedEvent, caller, cf);
-    }
-
-    async #handlePostRequest(request: Party.Request, caller: Caller) {
-      const jsonObj = await request.json();
-
-      switch (caller.type) {
-        case "client":
-          await this.#handleEvent(
-            jsonObj,
-            caller,
-            eventSchemas.client,
-            request.cf
-          );
-          break;
-        case "service":
-          await this.#handleEvent(
-            jsonObj,
-            caller,
-            eventSchemas.service,
-            request.cf
-          );
-          break;
-        default:
-          throw new Error(
-            `Unsupported caller type for POST request: ${caller.type}`
-          );
-      }
-
-      return json({ status: "ok" });
-    }
-
-    async onRequest(request: Party.Request) {
-      const { ACTOR_KIT_SECRET } = EnvironmentSchema.parse(this.room.env);
-      const caller = await getCallerFromRequest(
-        request,
-        this.room.name,
-        this.room.id,
-        ACTOR_KIT_SECRET
-      );
-      assert(caller, "expected caller to be set");
-      console.log("CALLER FROM REQUEST", caller);
-
-      if (request.method === "GET") {
-        return this.#handleGetRequest(request, caller);
-      } else if (request.method === "POST") {
-        return this.#handlePostRequest(request, caller);
-      }
-
-      return notFound();
-    }
-
-    #ensureActorRunning({
-      caller,
-      inputJson,
-    }: {
+    /**
+     * Spawns a new actor with the given properties.
+     */
+    async spawn(props: {
+      actorType: string;
+      actorId: string;
       caller: Caller;
-      inputJson?: Record<string, unknown>;
+      input: Record<string, unknown>;
     }) {
-      if (!this.actor) {
-        const props = {
-          id: this.room.id,
-          caller,
-          ...inputJson,
-        } as CreateMachineProps;
-        this.actor = this.#createAndInitializeActor(props);
-      }
-      return this.actor;
-    }
-
-    async onConnect(
-      connection: Party.Connection,
-      context: Party.ConnectionContext
-    ) {
-      const searchParams = new URLSearchParams(
-        context.request.url.split("?")[1]
-      );
-      const token = searchParams.get("token");
-      assert(token, "expected connection token when connecting to socket");
-
-      try {
-        const { ACTOR_KIT_SECRET } = EnvironmentSchema.parse(this.room.env);
-        const { payload } = await parseConnectionToken(token, ACTOR_KIT_SECRET);
-        const connectionId = payload.jti;
-        assert(connectionId, "expected connectionId from token");
-        assert(
-          connectionId === connection.id,
-          "connectionId from token does not match connection id"
-        );
-
-        const caller = this.callersByConnectionId.get(connection.id);
-        assert(caller, "expected caller to be set");
-        // todo handle instances where caller doesnt exist yet...
-
-        const actor = this.#ensureActorRunning({ caller });
-
-        let lastSnapshot =
-          this.lastSnapshotsByConnectionId.get(connection.id) || {};
-        const sendSnapshot = (e?: any) => {
-          assert(actor, "expected actor reference to exist");
-          const fullSnapshot = actor.getSnapshot();
-          const nextSnapshot = this.#createCallerSnapshot(
-            fullSnapshot,
-            caller.id
-          );
-          const operations = compare(lastSnapshot, nextSnapshot);
-          lastSnapshot = nextSnapshot;
-          if (operations.length) {
-            connection.send(JSON.stringify({ operations }));
-          }
-          this.lastSnapshotsByConnectionId.set(connection.id, nextSnapshot);
-        };
-        sendSnapshot();
-
-        let requestInfo: z.infer<typeof RequestInfoSchema> | undefined;
-        if (context.request.cf) {
-          const result = RequestInfoSchema.safeParse(context.request.cf);
-          if (result.success) {
-            requestInfo = result.data;
-          }
-        }
-
-        actor.send({
-          type: "CONNECT",
-          connectionId: connection.id,
-          caller,
-          requestInfo,
-          parties: this.room.context.parties,
-        } as any);
-
-        const sub = actor.subscribe(sendSnapshot);
-        this.subscrptionsByConnectionId.set(connection.id, sub);
-
-        console.log(
-          `Connected: ${connection.id}, Caller: ${JSON.stringify(caller)}`
-        );
-      } catch (error) {
-        console.error("Error in onConnect:", error);
-        connection.close();
-      }
-    }
-
-    #sendEventToActor(event: any, caller: Caller, cf?: CloudFlareProps) {
-      assert(this.actor, "expected actor when sending event");
-      const payload = {
-        ...event,
-        caller,
-        cf,
-      };
-      this.actor.send(payload as EventFrom<TMachine>);
-    }
-
-    async onMessage(message: string, sender: Party.Connection) {
-      try {
-        const parsedMessage = JSON.parse(message);
-        const caller = this.callersByConnectionId.get(sender.id);
-        console.log({ caller, sender });
-
-        if (!caller) {
-          throw new Error(`No caller found for connection ID: ${sender.id}`);
-        }
-
-        let schema: z.ZodSchema;
-        if (caller.type === CallerTypes.client) {
-          schema = eventSchemas.client;
-        } else if (caller.type === CallerTypes.service) {
-          schema = eventSchemas.service;
-        } else {
-          throw new Error(`Unsupported caller type: ${caller.type}`);
-        }
-
-        const event = schema.parse(parsedMessage);
-
-        this.#ensureActorRunning({
-          caller,
-          inputJson: {},
+      if (!this.actorType && !this.actorId && !this.initialCaller) {
+        // Store actor data in storage
+        await Promise.all([
+          this.storage.put("actorType", props.actorType),
+          this.storage.put("actorId", props.actorId),
+          this.storage.put("initialCaller", JSON.stringify(props.caller)),
+          this.storage.put("input", JSON.stringify(props.input)),
+        ]).catch((error) => {
+          console.error("Error storing actor data:", error);
         });
 
-        const eventWithContext = {
-          ...event,
-          context: this.extraContext,
-        };
+        // Update the instance properties
+        this.actorType = props.actorType;
+        this.actorId = props.actorId;
+        this.initialCaller = props.caller;
+        this.input = props.input;
 
-        this.#sendEventToActor(eventWithContext, caller, event.cf);
-      } catch (ex) {
-        console.warn("Error processing message from client:", ex);
+        this.#ensureActorRunning();
       }
     }
 
-    async onClose(connection: Party.Connection) {
-      const sub = this.subscrptionsByConnectionId.get(connection.id);
-      if (sub) {
-        sub.unsubscribe();
-      }
-
-      // Remove the connection
-      this.#connections.delete(connection.id);
+    // New method for scheduling snapshot cache cleanup
+    #scheduleSnapshotCacheCleanup(checksum: string) {
+      const CLEANUP_DELAY = 300000; // 5 minutes, adjust as needed
+      setTimeout(() => {
+        this.#cleanupSnapshotCache(checksum);
+      }, CLEANUP_DELAY);
     }
-  }
 
-  return ActorServer satisfies Party.Worker;
-};
+    // New method for periodic cache cleanup
+    #startPeriodicCacheCleanup() {
+      const CLEANUP_INTERVAL = 300000; // 5 minutes, adjust as needed
+      setInterval(() => {
+        const now = Date.now();
+        for (const [checksum, { timestamp }] of this.snapshotCache.entries()) {
+          if (now - timestamp > CLEANUP_INTERVAL) {
+            this.snapshotCache.delete(checksum);
+          }
+        }
+      }, CLEANUP_INTERVAL);
+    }
 
-/**
- * Extracts caller information from a request.
- * This function handles both access token and connection token authentication methods.
- * @param request The incoming request.
- * @param roomName The name of the room (used for token validation).
- * @param roomId The ID of the room (used for token validation).
- * @param callersByConnectionId A map of existing callers by their connection IDs.
- * @returns A Caller object if authentication is successful, undefined otherwise.
- */
-const getCallerFromRequest = async (
-  request: Party.Request,
-  roomName: string,
-  roomId: string,
-  secret: string
-): Promise<Caller | undefined> => {
-  const authHeader = request.headers.get("Authorization");
-  const accessToken = authHeader?.split(" ")[1];
-  assert(accessToken, "expected access token");
-  return parseAccessTokenForCaller({
-    accessToken,
-    type: roomName,
-    id: roomId,
-    secret,
-  });
-};
-
-/**
- * Parses and validates an access token to extract caller information.
- * @param accessToken The JWT access token to parse.
- * @param type The expected type of the caller.
- * @param id The expected ID of the actor.
- * @returns A validated Caller object.
- */
-const parseAccessTokenForCaller = async ({
-  accessToken,
-  type,
-  id,
-  secret,
-}: {
-  accessToken: string;
-  type: string;
-  id: string;
-  secret: string;
-}) => {
-  const verified = await jwtVerify(
-    accessToken,
-    new TextEncoder().encode(secret)
-  );
-  assert(verified.payload.jti, "expected JTI on accessToken");
-  assert(
-    verified.payload.jti === id,
-    "expected JTI on accessToken to match actor id: " + id
-  );
-  assert(
-    verified.payload.aud,
-    "expected accessToken audience to match actor type: " + type
-  );
-  assert(verified.payload.sub, "expected accessToken to have subject");
-  return CallerStringSchema.parse(verified.payload.sub);
-};
-
-const parseConnectionToken = async (token: string, secret: string) => {
-  const verified = await jwtVerify(token, new TextEncoder().encode(secret));
-  assert(verified.payload.jti, "expected JTI on connectionToken");
-  return verified;
-};
+    // New method for cleaning up snapshot cache
+    #cleanupSnapshotCache(checksum: string) {
+      if (checksum !== this.currentChecksum) {
+        const cachedData = this.snapshotCache.get(checksum);
+        if (cachedData) {
+          const now = Date.now();
+          if (now - cachedData.timestamp > 300000) { // 5 minutes, same as CLEANUP_DELAY
+            this.snapshotCache.delete(checksum);
+          }
+        }
+      }
+    }
+  };

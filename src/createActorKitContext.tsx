@@ -5,6 +5,7 @@ import React, {
   ReactNode,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -25,36 +26,44 @@ export function createActorKitContext<TMachine extends ActorKitStateMachine>(
 ) {
   const ActorKitContext = createContext<ActorKitClient<TMachine> | null>(null);
 
-  const Provider: React.FC<{
-    children: ReactNode;
-    options: Omit<ActorKitClientProps<TMachine>, 'actorType'>;
-  }> = ({ children, options }) => {
-    const [client, setClient] = useState<ActorKitClient<TMachine> | null>(null);
-    const clientRef = useRef<ActorKitClient<TMachine> | null>(null);
+  const Provider: React.FC<
+    {
+      children: ReactNode;
+    } & Omit<ActorKitClientProps<TMachine>, "actorType">
+  > = ({ children, ...props }) => {
+    console.log("ACTOR KIT PROVIDER RENDER");
+    const connectedRef = useRef<boolean>(false);
+
+    // Memoize the client configuration
+    const clientConfig = useMemo(
+      () => ({
+        ...props,
+        actorType,
+      }),
+      [
+        props.host,
+        props.actorId,
+        props.accessToken,
+        props.checksum,
+        props.initialSnapshot,
+        actorType,
+      ]
+    );
+
+    const [client] = useState(() => {
+      return createActorKitClient<TMachine>(clientConfig);
+    });
 
     useEffect(() => {
-      if (!clientRef.current) {
-        const newClient = createActorKitClient<TMachine>({
-          ...options,
-          actorType,
-        });
-        clientRef.current = newClient;
-        newClient.connect().then(() => {
-          setClient(newClient);
-        });
+      if (!connectedRef.current) {
+        client.connect().then(() => {});
+        connectedRef.current = true;
       }
+    }, [client, connectedRef]); // Use memoized config as dependency
 
-      return () => {
-        if (clientRef.current) {
-          clientRef.current.disconnect();
-          clientRef.current = null;
-        }
-      };
-    }, [options]);
-
-    if (!client) {
-      return null; // or a loading indicator
-    }
+    // if (!client) {
+    //   return null; // or a loading indicator
+    // }
 
     return (
       <ActorKitContext.Provider value={client}>

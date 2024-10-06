@@ -25,8 +25,10 @@
   ],
   "author": "jonmumm",
   "license": "ISC",
+  "peerDependencies": {
+    "xstate": "^5.18.1"
+  },
   "dependencies": {
-    "@cloudflare/workers-types": "^4.20240925.0",
     "cloudflare": "^3.5.0",
     "fast-json-patch": "^3.1.1",
     "immer": "^10.1.1",
@@ -35,15 +37,16 @@
     "partyserver": "^0.0.56",
     "partysocket": "^1.0.2",
     "use-sync-external-store": "^1.2.2",
-    "xstate": "^5.18.1",
     "xstate-migrate": "^0.0.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^22.5.4",
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "@types/node": "^22.7.4",
     "@types/react": "^18.3.9",
     "@types/use-sync-external-store": "^0.0.6",
     "react": "^18.3.1",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.2",
+    "xstate": "^5.18.1"
   }
 }

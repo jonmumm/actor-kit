@@ -1,114 +1,143 @@
 import {
-    Request as CFRequest,
-    Response as CFResponse,
-    DurableObjectNamespace,
-    ExecutionContext,
-  } from "@cloudflare/workers-types";
-  import type { ActorKitMachineServer } from "./types";
-  
-  type Env = {
-    [key: string]: DurableObjectNamespace;
+  DurableObjectNamespace,
+  ExecutionContext,
+} from "@cloudflare/workers-types";
+import { AnyEventSchema } from "./schemas";
+import {
+  ActorKitStateMachine,
+  AnyEvent,
+  Caller,
+  DurableObjectActor,
+  EnvWithDurableObjects,
+  KebabToScreamingSnake,
+  ScreamingSnakeToKebab,
+} from "./types";
+import { getCallerFromRequest } from "./utils";
+
+export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
+  routes: Array<ScreamingSnakeToKebab<Extract<keyof Env, string>>>
+) => {
+  type ActorType = ScreamingSnakeToKebab<Extract<keyof Env, string>>;
+
+  // Add a Set to keep track of spawned actors
+  const spawnedActors = new Set<string>();
+
+  function getDurableObjectNamespace<
+    T extends ScreamingSnakeToKebab<Extract<keyof Env, string>>
+  >(
+    env: Env,
+    key: T
+  ):
+    | DurableObjectNamespace<DurableObjectActor<ActorKitStateMachine>>
+    | undefined {
+    const envKey = key.toUpperCase() as KebabToScreamingSnake<T> & keyof Env;
+    const namespace = env[envKey];
+    if (
+      namespace &&
+      typeof namespace === "object" &&
+      "get" in namespace &&
+      "idFromName" in namespace
+    ) {
+      return namespace as unknown as DurableObjectNamespace<
+        DurableObjectActor<ActorKitStateMachine>
+      >;
+    }
+    return undefined;
+  }
+
+  return async (
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<Response> => {
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    if (pathParts.length !== 3 || pathParts[0] !== "api") {
+      return new Response("Not Found", { status: 404 });
+    }
+    const [, actorType, actorId] = pathParts;
+
+    if (!routes.includes(actorType as any)) {
+      return new Response(`Unknown actor type: ${actorType}`, { status: 400 });
+    }
+
+    const durableObjectNamespace = getDurableObjectNamespace<ActorType>(
+      env,
+      actorType as ActorType
+    );
+
+    if (!durableObjectNamespace) {
+      return new Response(
+        `Durable Object namespace not found for actor type: ${actorType}`,
+        { status: 500 }
+      );
+    }
+
+    const durableObjectId = durableObjectNamespace.idFromName(actorId);
+    const durableObjectStub = durableObjectNamespace.get(durableObjectId);
+
+    // Parse the auth header to get the caller token
+    let caller: Caller;
+    try {
+      caller = await getCallerFromRequest(
+        request,
+        actorType,
+        actorId,
+        env.ACTOR_KIT_SECRET
+      );
+    } catch (error: any) {
+      return new Response(
+        `Error: ${error.message}. API requests must specify a valid caller in Bearer token in the Authorization header using fetch method created from 'createActorFetch' or use 'createAcccessToken' directly.`,
+        { status: 401 }
+      );
+    }
+
+    // Create a unique key for the actor
+    const actorKey = `${actorType}:${actorId}`;
+    console.log("actorKey", actorKey);
+    console.log("caller", caller);
+    console.log("url", request.url);
+
+    // Check if the actor has already been spawned
+    if (!spawnedActors.has(actorKey)) {
+      // If not, spawn it and mark it as spawned
+      await durableObjectStub.spawn({
+        actorType,
+        actorId,
+        caller,
+        input: {},
+      });
+      spawnedActors.add(actorKey);
+    }
+
+    if (request.headers.get("Upgrade") === "websocket") {
+      return durableObjectStub.fetch(request as any) as any; // idk man
+    }
+
+    if (request.method === "GET") {
+      const result = await durableObjectStub.getSnapshot(caller);
+      return new Response(JSON.stringify(result));
+    } else if (request.method === "POST") {
+      let event: AnyEvent;
+      try {
+        const json = await request.json();
+        event = AnyEventSchema.parse(json);
+      } catch (ex: any) {
+        return new Response(JSON.stringify({ error: ex.message }), {
+          status: 400,
+        });
+      }
+
+      // todo fix types on this
+      durableObjectStub.send({
+        ...event,
+        caller,
+      });
+      return new Response(JSON.stringify({ success: true }));
+    } else {
+      return new Response(JSON.stringify({ error: "Method not allowed" }), {
+        status: 405,
+      });
+    }
   };
-  
-  /**
-   * Creates a router for handling Actor Kit requests in a Cloudflare Worker.
-   * 
-   * This router function leverages Durable Objects to provide persistent, globally unique instances for each actor.
-   * It implements E-order semantics, ensuring that calls to the same Durable Object are delivered in the order they were made.
-   * 
-   * @param servers - An object mapping actor types to their respective ActorKitServer classes.
-   * 
-   * @returns A function that handles routing for Actor Kit requests.
-   * 
-   * @example
-   * // In your wrangler.toml file:
-   * [[durable_objects.bindings]]
-   * name = "TodoActorKitServer"
-   * class_name = "TodoActorKitServer"
-   * 
-   * // In your Cloudflare Worker script (e.g., src/index.ts):
-   * import { WorkerEntrypoint } from "cloudflare:workers";
-   * import { createActorKitRouter } from 'actor-kit/worker';
-   * import { createMachineServer } from 'actor-kit/worker';
-   * import { createTodoMachine } from './todo.machine';
-   * import { todoEventSchemas } from './todo.schemas';
-   * 
-   * // Create the machine server
-   * const TodoActorKitServer = createMachineServer(
-   *   createTodoMachine,
-   *   todoEventSchemas,
-   *   { persisted: true }
-   * );
-   * 
-   * // Create the router
-   * const actorKitRouter = createActorKitRouter({
-   *   todo: TodoActorKitServer,
-   * });
-   * 
-   * // Use the router in a WorkerEntrypoint
-   * export default class MyWorker extends WorkerEntrypoint {
-   *   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-   *     const url = new URL(request.url);
-   *     
-   *     if (url.pathname.startsWith('/api/')) {
-   *       return actorKitRouter(request, env, ctx);
-   *     }
-   *     
-   *     // Handle other routes...
-   *     return new Response("Hello from MyWorker!");
-   *   }
-   * }
-   * 
-   * // Usage:
-   * // RPC: env.TODO_ACTOR_KIT_SERVER.get(actorId).addTodo("New task")
-   * // HTTP: GET /api/todo/123 will route to the TodoActorKitServer Durable Object with ID "123"
-   */
-  export const createActorKitRouter = (
-    servers: Record<string, ActorKitMachineServer>
-  ) => {
-    return async (
-      request: CFRequest,
-      env: Env,
-      ctx: ExecutionContext
-    ): Promise<CFResponse> => {
-      const url = new URL(request.url);
-      const pathParts = url.pathname.split("/").filter(Boolean);
-  
-      // Check if the request is for the API and has exactly three parts
-      // Expected format: /api/<actorType>/<actorId>
-      if (pathParts.length !== 3 || pathParts[0] !== "api") {
-        return new CFResponse("Not Found", { status: 404 });
-      }
-  
-      const [, actorType, actorId] = pathParts;
-      const ServerClass = servers[actorType];
-  
-      // Verify that the requested actor type exists
-      if (!ServerClass) {
-        return new CFResponse(`Unknown actor type: ${actorType}`, { status: 400 });
-      }
-  
-      // Get the Durable Object namespace for this actor type
-      // The naming convention is `${actorType}ActorKitServer`
-      const durableObjectNamespace = env[`${actorType}ActorKitServer`] as DurableObjectNamespace;
-      if (!durableObjectNamespace) {
-        return new CFResponse(
-          `Durable Object namespace not found for actor type: ${actorType}`,
-          { status: 500 }
-        );
-      }
-  
-      // Create a Durable Object ID from the actorId
-      // This maps the actorId to a specific Durable Object instance
-      const durableObjectId = durableObjectNamespace.idFromString(actorId);
-  
-      // Get a stub for the Durable Object
-      // This stub is a client object used to communicate with the Durable Object instance
-      const durableObjectStub = durableObjectNamespace.get(durableObjectId);
-  
-      // Forward the request to the Durable Object
-      // The Durable Object's fetch() method will handle the request
-      // This allows the Durable Object to process the request and manage its state
-      return durableObjectStub.fetch(request);
-    };
-  };
+};
