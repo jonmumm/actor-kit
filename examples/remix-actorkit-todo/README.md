@@ -2,6 +2,8 @@
 
 This project demonstrates how to integrate Actor Kit with a Remix application running entirely on Cloudflare Workers. It showcases a real-time, event-driven todo list with owner-based access control, all within a single Worker.
 
+Try it live: [https://remix-actorkit-todo.jonathanrmumm.workers.dev/](https://remix-actorkit-todo.jonathanrmumm.workers.dev/)
+
 ## 🌟 Key Features
 
 - 🚀 Single Cloudflare Worker for both Remix app and Actor Kit backend
@@ -223,3 +225,58 @@ export function TodoList() {
    This command starts the Cloudflare Worker, which includes both the Remix application and Actor Kit backend.
 
 7. Open `http://localhost:8787` in your browser to view the application.
+
+## 🚀 Deployment
+
+To deploy the Remix + Actor Kit Todo Example to Cloudflare Workers:
+
+1. Set up secrets for production:
+
+   ```bash
+   npx wrangler secret put ACTOR_KIT_HOST
+   npx wrangler secret put ACTOR_KIT_SECRET
+   npx wrangler secret put NODE_ENV
+   ```
+
+   Enter the appropriate values when prompted:
+   - `ACTOR_KIT_HOST`: Your production Worker URL (e.g., `https://your-worker-name.your-account.workers.dev`)
+   - `ACTOR_KIT_SECRET`: A secure, randomly generated secret key
+   - `NODE_ENV`: Set to `production`
+
+2. Update `wrangler.toml` for production if necessary:
+
+   ```toml
+   name = "remix-actorkit-todo"
+   main = "dist/index.js"
+   compatibility_date = "2024-09-25"
+
+   [[durable_objects.bindings]]
+   name = "REMIX"
+   class_name = "Remix"
+
+   [[durable_objects.bindings]]
+   name = "TODO"
+   class_name = "Todo"
+
+   [[migrations]]
+   tag = "v1"
+   new_classes = ["Remix", "Todo"]
+   ```
+
+3. Build the project:
+
+   ```bash
+   npm run build
+   ```
+
+4. Deploy the Worker:
+
+   ```bash
+   npx wrangler deploy
+   ```
+
+5. Verify the deployment by visiting the URL provided by Wrangler after successful deployment.
+
+Remember to never commit sensitive information like `.dev.vars` to version control. For updates to secrets, use the `wrangler secret put` command again with the same key.
+
+By following these steps, you'll have your Remix + Actor Kit Todo Example securely deployed and running on Cloudflare Workers.
