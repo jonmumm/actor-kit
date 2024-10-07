@@ -29,8 +29,6 @@ Actor Kit is a powerful library for creating and managing actor-based state mach
 - [🔐 Public and Private Data](#-public-and-private-data)
 - [📜 License](#-license)
 
-For a practical implementation, check out our [Next.js Todo List Example](/examples/nextjs-todo) which demonstrates how to integrate Actor Kit with a Next.js application to create a real-time, event-driven todo list.
-
 ## 💾 Installation
 
 To install Actor Kit, use your preferred package manager:
