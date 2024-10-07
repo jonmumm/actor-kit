@@ -101,6 +101,7 @@ export async function getCallerFromRequest(
   secret: string
 ): Promise<Caller> {
   let accessToken: string;
+  console.log(actorType, actorId, secret);
   if (request.headers.get("Upgrade") !== "websocket") {
     const authHeader = request.headers.get("Authorization");
     const stringPart = authHeader?.split(" ")[1];
@@ -112,6 +113,7 @@ export async function getCallerFromRequest(
     assert(paramString, "expected accessToken when connecting to socket");
     accessToken = paramString;
   }
+  console.log({ accessToken, actorType, actorId, secret });
 
   return parseAccessTokenForCaller({
     accessToken,

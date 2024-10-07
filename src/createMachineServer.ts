@@ -237,6 +237,7 @@ export const createMachineServer = <
 
       let caller: Caller | undefined;
       try {
+        console.log(this.actorId, this.actorType, this.env.ACTOR_KIT_SECRET);
         caller = await getCallerFromRequest(
           request,
           this.actorType,

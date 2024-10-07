@@ -31,10 +31,7 @@ export function createActorKitContext<TMachine extends ActorKitStateMachine>(
       children: ReactNode;
     } & Omit<ActorKitClientProps<TMachine>, "actorType">
   > = ({ children, ...props }) => {
-    console.log("ACTOR KIT PROVIDER RENDER");
     const connectedRef = useRef<boolean>(false);
-
-    // Memoize the client configuration
     const clientConfig = useMemo(
       () => ({
         ...props,
@@ -60,10 +57,6 @@ export function createActorKitContext<TMachine extends ActorKitStateMachine>(
         connectedRef.current = true;
       }
     }, [client, connectedRef]); // Use memoized config as dependency
-
-    // if (!client) {
-    //   return null; // or a loading indicator
-    // }
 
     return (
       <ActorKitContext.Provider value={client}>

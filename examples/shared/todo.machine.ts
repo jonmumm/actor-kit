@@ -14,7 +14,7 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
         private: Record<
           string,
           {
-            lastAccessTime?: Date;
+            lastAccessTime?: number;
             userPreferences?: {
               theme: "light" | "dark";
               sortOrder: "asc" | "desc";

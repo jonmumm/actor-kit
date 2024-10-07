@@ -65,6 +65,7 @@ export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
       env,
       actorType as ActorType
     );
+    console.log("env.ACTOR_KIT_SECRET", env.ACTOR_KIT_SECRET);
 
     if (!durableObjectNamespace) {
       return new Response(

@@ -15,6 +15,9 @@ Actor Kit is a powerful library for creating and managing actor-based state mach
   - [6️⃣ Create the Actor Kit Context](#6️⃣-create-the-actor-kit-context)
   - [7️⃣ Fetch data server-side](#7️⃣-fetch-data-server-side)
   - [8️⃣ Create a client-side component](#8️⃣-create-a-client-side-component)
+- [🚀 Examples](#-examples)
+  - [Remix Todo List Example](#remix-todo-list-example)
+  - [Next.js Todo List Example](#nextjs-todo-list-example)
 - [🚀 Getting Started](#-getting-started)
 - [📖 API Reference](#-api-reference)
   - [🔧 actor-kit/worker](#-actor-kitworker)
@@ -120,7 +123,7 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
           todos: Array<{ id: string; text: string; completed: boolean }>;
           lastSync: number | null;
         };
-        private: Record<string, { lastAccessTime?: Date }>;
+        private: Record<string, { lastAccessTime?: number }>;
       },
       events: {} as TodoEvent,
     },
@@ -354,7 +357,7 @@ export function TodoList() {
 }
 ```
 
-This comprehensive example demonstrates how to set up and use Actor Kit in a Next.js application with Cloudflare Workers, including:
+This example demonstrates how to set up and use Actor Kit in a Next.js application with Cloudflare Workers, including:
 
 1. Defining event schemas and types
 2. Creating the state machine with proper typing
@@ -455,6 +458,41 @@ This comprehensive example demonstrates how to set up and use Actor Kit in a Nex
    ```
 
 By following these steps, you'll have set up your Cloudflare Worker with the necessary Durable Object bindings to run your Actor Kit servers, implemented the `createActorKitRouter` to handle routing to the appropriate Durable Objects, and deployed your Worker to Cloudflare's edge network.
+
+## 🚀 Examples
+
+To help you get started with Actor Kit, we've prepared two comprehensive examples using popular web frameworks:
+
+### Remix Todo List Example
+
+Explore a full-featured todo list application built with Remix and Actor Kit. This example demonstrates how to integrate Actor Kit with Remix for real-time, collaborative task management.
+
+**[View the Remix Todo List Example](/examples/remix-actorkit-todo)**
+
+Key features:
+- Real-time updates across multiple clients
+- Server-side rendering with Remix
+- Actor Kit integration for state management
+- TypeScript for type safety
+
+### Next.js Todo List Example
+
+Discover how to use Actor Kit with Next.js in this todo list application. This example showcases the power of Actor Kit combined with Next.js's server-side rendering and API routes.
+
+**[View the Next.js Todo List Example](/examples/nextjs-actorkit-todo)**
+
+Key features:
+- Real-time collaborative todo list
+- Next.js API routes for backend logic
+- Actor Kit for state synchronization
+- TypeScript implementation
+
+Both examples provide a practical implementation of Actor Kit, demonstrating how to:
+- Set up Actor Kit with different web frameworks
+- Define state machines for todo list management
+- Handle real-time updates and state synchronization
+- Implement server-side rendering with Actor Kit
+- Structure your project for scalability and maintainability
 
 ## 📖 API Reference
 
