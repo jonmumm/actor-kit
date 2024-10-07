@@ -1,13 +1,13 @@
-# Remix + ActorKit Todo Example
+# Remix + Actor Kit Todo Example
 
-This project demonstrates how to integrate ActorKit with a Remix application running entirely on Cloudflare Workers. It showcases a real-time, event-driven todo list with owner-based access control, all within a single Worker.
+This project demonstrates how to integrate Actor Kit with a Remix application running entirely on Cloudflare Workers. It showcases a real-time, event-driven todo list with owner-based access control, all within a single Worker.
 
 ## 🌟 Key Features
 
-- 🚀 Single Cloudflare Worker for both Remix app and ActorKit backend
+- 🚀 Single Cloudflare Worker for both Remix app and Actor Kit backend
 - 🔄 Real-time synchronization across clients
 - 🖥️ Server-side rendering with Remix
-- 🎭 State management using XState and ActorKit
+- 🎭 State management using XState and Actor Kit
 - 🛡️ Type-safe interactions with TypeScript and Zod
 - 🔐 Secure handling of public and private data
 - 🔒 JWT-based authentication
@@ -27,13 +27,12 @@ examples/remix-actorkit-todo/
 │   ├── remix.server.ts          # Remix server setup
 │   ├── root.tsx                 # Root component
 │   ├── todo.components.tsx      # Todo list components
-│   ├── todo.context.tsx         # ActorKit context for todos
+│   ├── todo.context.tsx         # Actor Kit context for todos
 │   ├── todo.machine.ts          # Todo state machine
 │   ├── todo.schemas.ts          # Zod schemas for todo events
 │   ├── todo.server.ts           # Todo server setup
 │   ├── todo.types.ts            # TypeScript types for todos
 │   └── user.context.tsx         # User context
-├── public/                      # Static assets
 ├── server.ts                    # Main server file
 ├── package.json                 # Project dependencies and scripts
 ├── remix.config.js              # Remix configuration
@@ -44,22 +43,14 @@ examples/remix-actorkit-todo/
 
 ## 🛠️ How It Works
 
-This example leverages Cloudflare Workers to run both the Remix application and the ActorKit backend in a single Worker. This unified approach simplifies deployment and provides seamless integration between the frontend and backend.
-
 ### 1. Unified Worker Setup
 
-The `server.ts` file sets up a single Cloudflare Worker that handles both Remix requests and ActorKit API calls:
+The `server.ts` file sets up a single Cloudflare Worker that handles both Remix requests and Actor Kit API calls:
 
 ```typescript
-import { logDevReady } from "@remix-run/cloudflare";
-import * as build from "@remix-run/dev/server-build";
 import { createActorKitRouter } from "actor-kit/worker";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Env } from "./app/env";
-
-if (process.env.NODE_ENV === "development") {
-  logDevReady(build);
-}
 
 const router = createActorKitRouter<Env>(["todo"]);
 
@@ -75,7 +66,146 @@ export default class Worker extends WorkerEntrypoint<Env> {
 }
 ```
 
-This setup allows the Worker to route API requests to ActorKit and all other requests to the Remix application, providing a seamless experience within a single deployment.
+This setup allows the Worker to route API requests to Actor Kit and all other requests to the Remix application.
+
+### 2. Todo List State Machine
+
+The todo list functionality is implemented as a state machine using XState and Actor Kit. The machine definition is in `app/todo.machine.ts`:
+
+```typescript
+export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
+  setup({
+    // ... types and actions ...
+  }).createMachine({
+    id,
+    type: "parallel",
+    context: {
+      public: {
+        ownerId: caller.id,
+        todos: [],
+        lastSync: null,
+      },
+      private: {},
+    },
+    states: {
+      Initialization: {
+        initial: "Ready",
+        states: {
+          Ready: {},
+        },
+      },
+      TodoManagement: {
+        on: {
+          ADD_TODO: {
+            actions: ["addTodo"],
+            guard: "isOwner",
+          },
+          TOGGLE_TODO: {
+            actions: ["toggleTodo"],
+            guard: "isOwner",
+          },
+          DELETE_TODO: {
+            actions: ["deleteTodo"],
+            guard: "isOwner",
+          },
+        },
+      },
+    },
+  });
+```
+
+### 3. Server-Side Integration
+
+The todo list page (`app/routes/lists.$id.tsx`) fetches initial state and sets up the Actor Kit context:
+
+```typescript
+export async function loader({ params, context }: LoaderFunctionArgs) {
+  const host = process.env.ACTOR_KIT_HOST!;
+  const fetchTodoActor = createActorFetch<TodoMachine>({
+    actorType: "todo",
+    host,
+  });
+
+  const signingKey = process.env.ACTOR_KIT_SECRET!;
+
+  const listId = params.id;
+  if (!listId) {
+    throw new Error("listId is required");
+  }
+
+  const accessToken = await createAccessToken({
+    signingKey,
+    actorId: listId,
+    actorType: "todo",
+    callerId: context.userId,
+    callerType: "client",
+  });
+  const payload = await fetchTodoActor({
+    actorId: listId,
+    accessToken,
+  });
+  return json({ listId, accessToken, payload, host });
+}
+```
+
+### 4. Client-Side Component with Access Control
+
+The `TodoList` component (`app/todo.components.tsx`) demonstrates owner-based access control:
+
+```typescript
+export function TodoList() {
+  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
+  const send = TodoActorKitContext.useSend();
+  const [newTodoText, setNewTodoText] = useState("");
+
+  const userId = useContext(UserContext);
+  const ownerId = TodoActorKitContext.useSelector(
+    (state) => state.public.ownerId
+  );
+  const isOwner = ownerId === userId;
+
+  // ... component logic ...
+
+  return (
+    <div>
+      <h1>Todo List</h1>
+      {isOwner && (
+        <form onSubmit={handleAddTodo}>
+          {/* Add todo form */}
+        </form>
+      )}
+      <ul>
+        {/* Todo list items */}
+      </ul>
+    </div>
+  );
+}
+```
+
+### 5. Authentication and Session Management
+
+The `app/remix.server.ts` file implements JWT-based authentication and session management:
+
+```typescript
+export class Remix extends DurableObject<Env> {
+  async fetch(request: Request) {
+    // ... authentication logic ...
+
+    const response = await handleRemixRequest(request, {
+      env: this.env,
+      userId,
+      sessionId,
+      pageSessionId,
+    });
+
+    // ... set cookies ...
+
+    return response;
+  }
+
+  // ... helper methods for token management ...
+}
+```
 
 ## 🚀 Getting Started
 
@@ -96,6 +226,7 @@ This setup allows the Worker to route API requests to ActorKit and all other req
    Create a `.env` file with:
 
    ```
+   ACTOR_KIT_HOST=http://localhost:8787
    ACTOR_KIT_SECRET=your-secret-key
    ```
 
@@ -105,26 +236,6 @@ This setup allows the Worker to route API requests to ActorKit and all other req
    npm run dev
    ```
 
-   This command starts the Cloudflare Worker, which includes both the Remix application and ActorKit backend.
+   This command starts the Cloudflare Worker, which includes both the Remix application and Actor Kit backend.
 
 5. Open `http://localhost:8787` in your browser to view the application.
-
-By running everything in a single Cloudflare Worker, this example demonstrates how to create a fully-featured, real-time application with minimal infrastructure complexity.
-
-## 📦 Deployment
-
-To deploy your Remix + ActorKit application to Cloudflare Workers:
-
-1. Build the application:
-
-   ```bash
-   npm run build
-   ```
-
-2. Deploy to Cloudflare Workers:
-
-   ```bash
-   npx wrangler deploy
-   ```
-
-Make sure to update the `ACTOR_KIT_SECRET` and other environment variables in your Cloudflare Worker's settings for production use.
