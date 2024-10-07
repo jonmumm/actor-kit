@@ -1,6 +1,5 @@
 import { createRequestHandler, logDevReady } from "@remix-run/cloudflare";
 import * as build from "@remix-run/dev/server-build";
-import { createActorKitRouter } from "actor-kit/worker";
 import { DurableObject } from "cloudflare:workers";
 import { SignJWT, jwtVerify } from "jose";
 import type { Env } from "./env";
@@ -13,8 +12,6 @@ const REFRESH_TOKEN_COOKIE_KEY = "refresh-token";
 if (process.env.NODE_ENV === "development") {
   logDevReady(build);
 }
-
-const router = createActorKitRouter<Env>(["todo"]);
 
 const handleRemixRequest = createRequestHandler(build);
 

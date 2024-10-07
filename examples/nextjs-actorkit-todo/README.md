@@ -252,4 +252,4 @@ export default class Worker extends WorkerEntrypoint<Env> {
    npm run dev
    ```
 
-6. Open `http://localhost:3000` in your browser and start managing your todos!
+6. Open `http://localhost:3000` in your browser

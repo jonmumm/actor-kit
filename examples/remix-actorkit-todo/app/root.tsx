@@ -11,7 +11,7 @@ import {
 } from "@remix-run/react";
 
 import type { LinksFunction, LoaderFunctionArgs } from "@remix-run/cloudflare";
-import { UserContext } from "shared/user.context";
+import { UserContext } from "./user.context";
 
 export const links: LinksFunction = () => [
   ...(cssBundleHref ? [{ rel: "stylesheet", href: cssBundleHref }] : []),

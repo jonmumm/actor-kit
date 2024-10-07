@@ -2,7 +2,7 @@
 
 export default {
 	ignoredRouteFiles: ['**/.*'],
-	server: './app/server.ts',
+	server: './server.ts',
 	serverConditions: ['workerd', 'worker', 'browser'],
 	serverMainFields: ['workerd', 'browser', 'module', 'main'],
 	serverMinify: false,
