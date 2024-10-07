@@ -179,7 +179,7 @@ import { createMachineServer } from "actor-kit/worker";
 import { createTodoListMachine } from "./todo.machine";
 import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
 
-export const TodoActorKitServer = createMachineServer({
+export const Todo = createMachineServer({
   createMachine: createTodoListMachine,
   eventSchemas: {
     client: TodoClientEventSchema,
@@ -189,6 +189,9 @@ export const TodoActorKitServer = createMachineServer({
     persisted: true,
   },
 });
+
+export type TodoServer = InstanceType<typeof Todo>;
+export default Todo;
 ```
 
 ### 4️⃣ Configure Wrangler
@@ -218,28 +221,31 @@ Create a new file, e.g., `src/server.ts`, to set up your Cloudflare Worker:
 
 ```typescript
 // src/server.ts
+import { DurableObjectNamespace } from "@cloudflare/workers-types";
+import { AnyActorServer } from "actor-kit";
 import { createActorKitRouter } from "actor-kit/worker";
-import { TodoActorKitServer } from "./todo.server";
+import { WorkerEntrypoint } from "cloudflare:workers";
+import { Todo, TodoServer } from "./todo.server";
 
-const actorKitRouter = createActorKitRouter(["todo"]);
+interface Env {
+  TODO: DurableObjectNamespace<TodoServer>;
+  ACTOR_KIT_SECRET: string;
+  [key: string]: DurableObjectNamespace<AnyActorServer> | unknown;
+}
 
-export default {
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    const url = new URL(request.url);
+const router = createActorKitRouter<Env>(["todo"]);
 
-    // Handle Actor Kit routes
-    if (url.pathname.startsWith("/api/")) {
-      return actorKitRouter(request, env, ctx);
+export { Todo };
+
+export default class Worker extends WorkerEntrypoint<Env> {
+  fetch(request: Request): Promise<Response> | Response {
+    if (request.url.includes("/api/")) {
+      return router(request, this.env, this.ctx);
     }
 
-    // Handle other routes or return a default response
-    return new Response("Welcome to Actor Kit on Cloudflare Workers!");
-  },
-};
+    return new Response("API powered by ActorKit");
+  }
+}
 ```
 
 ### 6️⃣ Create the Actor Kit Context
