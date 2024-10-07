@@ -15,6 +15,7 @@ legacy_assets = "public"
 [vars]
 ACTOR_KIT_HOST = "127.0.0.1:8787"
 ACTOR_KIT_SECRET = "foobarbaz"
+DEBUG_LEVEL = "3"
 
 [[durable_objects.bindings]]
 name = "REMIX"

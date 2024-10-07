@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import { compare } from "fast-json-patch";
 import { Actor, createActor, SnapshotFrom, Subscription } from "xstate";
 import { z } from "zod";
+import { PERSISTED_SNAPSHOT_KEY } from "./constants";
 import { CallerSchema } from "./schemas";
 import {
   ActorKitStateMachine,
@@ -15,13 +16,18 @@ import {
   MachineServerOptions,
   ServiceEventFrom,
 } from "./types";
-import { assert, getCallerFromRequest } from "./utils";
+import {
+  applyMigrations,
+  assert,
+  getCallerFromRequest,
+} from "./utils";
 
 // Define schemas for storage and WebSocket attachments
 const StorageSchema = z.object({
   actorType: z.string(),
   actorId: z.string(),
   initialCaller: CallerSchema,
+  input: z.record(z.unknown()),
 });
 
 const WebSocketAttachmentSchema = z.object({
@@ -95,6 +101,7 @@ export const createMachineServer = <
             this.storage.get("initialCaller"),
             this.storage.get("input"),
           ]);
+        console.debug(`[${this.actorId}] Attempting to load actor data from storage`);
 
         if (actorType && actorId && initialCallerString && inputString) {
           try {
@@ -104,24 +111,45 @@ export const createMachineServer = <
               initialCaller: JSON.parse(
                 initialCallerString as string
               ) as Caller,
+              input: JSON.parse(inputString as string),
             });
 
             this.actorType = parsedData.actorType;
             this.actorId = parsedData.actorId;
             this.initialCaller = parsedData.initialCaller;
-            this.input = JSON.parse(inputString as string);
+            this.input = parsedData.input;
+
+            if (options?.persisted) {
+              console.debug(
+                `[${this.actorId}] Attempting to load persisted snapshot`
+              );
+              const persistedSnapshot = await this.loadPersistedSnapshot();
+              if (persistedSnapshot) {
+                console.debug(
+                  `[${this.actorId}] Persisted snapshot found, restoring actor`
+                );
+                this.restorePersistedActor(persistedSnapshot);
+              } else {
+                console.debug(
+                  `[${this.actorId}] No persisted snapshot found, creating new actor`
+                );
+                this.#ensureActorRunning();
+              }
+            } else {
+              console.debug(
+                `[${this.actorId}] Persistence disabled, creating new actor`
+              );
+              this.#ensureActorRunning();
+            }
           } catch (error) {
             console.error("Failed to parse stored data:", error);
           }
-
-          // Ensure the actor is running
-          this.#ensureActorRunning();
-
-          // Resume all existing WebSockets
-          this.state.getWebSockets().forEach((ws) => {
-            this.subscribeSocketToActor(ws);
-          });
         }
+
+        // Resume all existing WebSockets
+        this.state.getWebSockets().forEach((ws) => {
+          this.#subscribeSocketToActor(ws);
+        });
       });
 
       this.#startPeriodicCacheCleanup();
@@ -138,17 +166,29 @@ export const createMachineServer = <
       assert(this.initialCaller, "initialCaller is not set");
 
       if (!this.actor) {
+        console.debug(`[${this.actorId}] Creating new actor`);
         const props = {
           id: this.actorId,
           caller: this.initialCaller,
           ...this.input,
         } as CreateMachineProps;
-        this.actor = this.#createAndInitializeActor(props);
+        const machine = createMachine(props as any);
+        this.actor = createActor(machine, { input: props } as any);
+
+        if (options?.persisted) {
+          console.debug(
+            `[${this.actorId}] Setting up persistence for new actor`
+          );
+          this.#setupStatePersistence(this.actor);
+        }
+
+        this.actor.start();
+        console.debug(`[${this.actorId}] New actor started`);
       }
       return this.actor;
     }
 
-    subscribeSocketToActor(ws: WebSocket) {
+    #subscribeSocketToActor(ws: WebSocket) {
       try {
         const attachment = WebSocketAttachmentSchema.parse(
           ws.deserializeAttachment()
@@ -225,6 +265,7 @@ export const createMachineServer = <
      * @private
      */
     #setupStatePersistence(actor: Actor<TMachine>) {
+      console.debug(`[${this.actorId}] Setting up state persistence`);
       actor.subscribe((state) => {
         const fullSnapshot = actor.getSnapshot();
         if (fullSnapshot) {
@@ -243,15 +284,19 @@ export const createMachineServer = <
           !this.lastPersistedSnapshot ||
           compare(this.lastPersistedSnapshot, snapshot).length > 0
         ) {
-          // TODO: Implement actual persistence logic
-          // await this.room.storage.put(
-          //   PERSISTED_SNAPSHOT_KEY,
-          //   JSON.stringify(snapshot)
-          // );
+          console.debug(`[${this.actorId}] Persisting new snapshot`);
+          await this.storage.put(
+            PERSISTED_SNAPSHOT_KEY,
+            JSON.stringify(snapshot)
+          );
           this.lastPersistedSnapshot = snapshot;
+        } else {
+          console.debug(
+            `[${this.actorId}] No changes in snapshot, skipping persistence`
+          );
         }
       } catch (error) {
-        console.error("Error persisting snapshot:", error);
+        console.error(`[${this.actorId}] Error persisting snapshot:`, error);
       }
     }
 
@@ -294,7 +339,7 @@ export const createMachineServer = <
       server.serializeAttachment(initialAttachment);
 
       // Subscribe the new WebSocket to the actor
-      this.subscribeSocketToActor(server);
+      this.#subscribeSocketToActor(server);
 
       return new Response(null, {
         status: 101,
@@ -504,5 +549,59 @@ export const createMachineServer = <
           }
         }
       }
+    }
+
+    // Add this method to load the persisted snapshot
+    async loadPersistedSnapshot(): Promise<SnapshotFrom<TMachine> | null> {
+      const snapshotString = await this.storage.get(PERSISTED_SNAPSHOT_KEY);
+      if (snapshotString) {
+        console.debug(`[${this.actorId}] Loaded persisted snapshot`);
+        return JSON.parse(snapshotString as string);
+      }
+      console.debug(`[${this.actorId}] No persisted snapshot found`);
+      return null;
+    }
+
+    // Add this method to restore the persisted actor
+    restorePersistedActor(persistedSnapshot: SnapshotFrom<TMachine>) {
+      console.debug(`[${this.actorId}] Restoring persisted actor`);
+      assert(this.actorId, "actorId is not set");
+      assert(this.actorType, "actorType is not set");
+      assert(this.initialCaller, "initialCaller is not set");
+      assert(this.input, "input is not set");
+
+      const machine = createMachine({
+        id: this.actorId,
+        caller: this.initialCaller,
+        ...this.input,
+      } as CreateMachineProps);
+      const restoredSnapshot = applyMigrations(machine, persistedSnapshot);
+
+      this.actor = createActor(machine, {
+        snapshot: restoredSnapshot,
+        input: {
+          id: this.actorId,
+          caller: this.initialCaller,
+          ...this.input,
+        } as any,
+      });
+
+      if (options?.persisted) {
+        console.debug(
+          `[${this.actorId}] Setting up persistence for restored actor`
+        );
+        this.#setupStatePersistence(this.actor);
+      }
+
+      this.actor.start();
+      console.debug(`[${this.actorId}] Restored actor started`);
+
+      this.actor.send({
+        type: "RESUME",
+        caller: { id: this.actorId, type: "system" },
+      } as any);
+      console.debug(`[${this.actorId}] Sent RESUME event to restored actor`);
+
+      this.lastPersistedSnapshot = restoredSnapshot as any;
     }
   };

@@ -1,19 +1,67 @@
 import { jwtVerify, SignJWT } from "jose";
 import type { AnyStateMachine } from "xstate";
-// import { xstateMigrate } from "xstate-migrate";
+import { xstateMigrate } from "xstate-migrate";
 import { PERSISTED_SNAPSHOT_KEY } from "./constants";
 import { CallerStringSchema } from "./schemas";
 import { Caller } from "./types";
 
+// Define log levels
+export enum LogLevel {
+  ERROR = 0,
+  WARN = 1,
+  INFO = 2,
+  DEBUG = 3,
+}
+
+// Declare a global variable to control debug level
+declare global {
+  var DEBUG_LEVEL: LogLevel | undefined;
+}
+
+// Set the current log level based on the global DEBUG_LEVEL variable
+// Default to INFO if not set
+const getCurrentLogLevel = (): LogLevel => {
+  return globalThis.DEBUG_LEVEL !== undefined ? globalThis.DEBUG_LEVEL : LogLevel.INFO;
+};
+
 /**
- * Loads a persisted snapshot from storage.
- * @param storage The storage interface to retrieve the snapshot from.
- * @returns The parsed snapshot or null if not found.
+ * Debug logging function
+ * @param message The message to log
+ * @param level The log level (default: DEBUG)
+ * @param data Additional data to log (optional)
  */
-// export const loadPersistedSnapshot = async (storage: Party.Storage) => {
-//   const persistentSnapshot = await storage.get(PERSISTED_SNAPSHOT_KEY);
-//   return persistentSnapshot ? JSON.parse(persistentSnapshot as string) : null;
-// };
+export function debug(message: string, level: LogLevel = LogLevel.DEBUG, data?: any) {
+  const currentLogLevel = getCurrentLogLevel();
+  if (level <= currentLogLevel) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] ${LogLevel[level]}: ${message}`;
+    
+    if (data) {
+      console.log(logMessage, data);
+    } else {
+      console.log(logMessage);
+    }
+    
+    // You can extend this to send logs to a service if needed
+    // For example:
+    // if (typeof fetch !== 'undefined') {
+    //   fetch('https://your-logging-service.com', {
+    //     method: 'POST',
+    //     body: JSON.stringify({ message: logMessage, level, data }),
+    //   });
+    // }
+  }
+}
+
+// Convenience methods for different log levels
+export const logError = (message: string, data?: any) => debug(message, LogLevel.ERROR, data);
+export const logWarn = (message: string, data?: any) => debug(message, LogLevel.WARN, data);
+export const logInfo = (message: string, data?: any) => debug(message, LogLevel.INFO, data);
+
+export const loadPersistedSnapshot = async (storage: DurableObjectStorage) => {
+  const persistentSnapshot = await storage.get(PERSISTED_SNAPSHOT_KEY);
+  return persistentSnapshot ? JSON.parse(persistentSnapshot as string) : null;
+};
 
 /**
  * Applies any necessary migrations to the persisted snapshot.
@@ -21,13 +69,13 @@ import { Caller } from "./types";
  * @param parsedSnapshot The snapshot to migrate.
  * @returns The migrated snapshot.
  */
-// export const applyMigrations = (
-//   machine: AnyStateMachine,
-//   parsedSnapshot: any
-// ) => {
-//   const migrations = xstateMigrate.generateMigrations(machine, parsedSnapshot);
-//   return xstateMigrate.applyMigrations(parsedSnapshot, migrations);
-// };
+export const applyMigrations = (
+  machine: AnyStateMachine,
+  parsedSnapshot: any
+) => {
+  const migrations = xstateMigrate.generateMigrations(machine, parsedSnapshot);
+  return xstateMigrate.applyMigrations(parsedSnapshot, migrations);
+};
 
 export const createConnectionToken = async (
   actorId: string,
