@@ -16,7 +16,7 @@ Actor Kit is a powerful library for creating and managing actor-based state mach
   - [7️⃣ Fetch data server-side](#7️⃣-fetch-data-server-side)
   - [8️⃣ Create a client-side component](#8️⃣-create-a-client-side-component)
 - [🚀 Getting Started](#-getting-started)
-- [🗂️ Framework Examples](#framework-examples)
+- [🗂️ Framework Examples](#-framework-examples)
 - [📖 API Reference](#-api-reference)
   - [🔧 actor-kit/worker](#-actor-kitworker)
   - [🖥️ actor-kit/server](#️-actor-kitserver)
