@@ -30,7 +30,6 @@
     "baseUrl": ".",
     "paths": {
       "~/*": ["./app/*"],
-      "shared/*": ["../shared/*"]
     } /* Specify a set of entries that re-map imports to additional lookup locations. */,
     // "rootDirs": [],                                   /* Allow multiple folders to be treated as one when resolving modules. */
     // "typeRoots": [],                                  /* Specify multiple folders that act like `./node_modules/@types`. */
@@ -109,7 +108,7 @@
   },
 
   // Specifies an array of glob patterns that match files to be included in compilation
-  "include": ["remix.env.d.ts", "**/*.ts", "**/*.tsx", "../shared/**/*"],
+  "include": ["remix.env.d.ts", "**/*.ts", "**/*.tsx"],
 
   // Specifies an array of glob patterns that match files to be excluded from compilation
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

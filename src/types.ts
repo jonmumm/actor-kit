@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import type * as Party from "partykit/server";
 import type {
   AnyEventObject,
   AnyStateMachine,
@@ -47,14 +46,6 @@ export type AnyActorServer = ActorServer<any, any, any>;
 
 export type Caller = z.infer<typeof CallerSchema>;
 export type RequestInfo = z.infer<typeof RequestInfoSchema>;
-export type CloudFlareProps = Party.Request["cf"];
-
-export type PartyMap = Record<
-  string,
-  {
-    get(id: string): Party.Stub;
-  }
->;
 
 export type WithIdAndCallerInput = {
   id: string;
@@ -113,16 +104,14 @@ export type MachineServerOptions = {
 };
 
 export type ExtraContext = {
-  storage: Party.Storage;
-  parties: PartyMap;
+  requestId: string;
 };
 
 // Base event interface
 export interface BaseActorKitEvent {
   caller: Caller;
-  parties?: PartyMap;
   requestInfo?: RequestInfo;
-  cf?: CloudFlareProps;
+  // cf?: CloudFlareProps;
 }
 
 export type ActorKitSystemEvent = z.infer<typeof SystemEventSchema> & {

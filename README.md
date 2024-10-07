@@ -261,8 +261,8 @@ export const TodoActorKitProvider = TodoActorKitContext.Provider;
 // src/app/lists/[id]/page.tsx
 import { getUserId } from "@/session";
 import { createAccessToken, createActorFetch } from "actor-kit/server";
-import { TodoActorKitProvider } from "shared/todo.context";
-import type { TodoMachine } from "shared/todo.machine";
+import { TodoActorKitProvider } from "./todo.context";
+import type { TodoMachine } from "./todo.machine";
 import { TodoList } from "./components";
 
 const host = process.env.ACTOR_KIT_HOST!;
@@ -311,7 +311,7 @@ export default async function TodoPage(props: { params: { id: string } }) {
 "use client";
 
 import React, { useState } from "react";
-import { TodoActorKitContext } from "shared/todo.context";
+import { TodoActorKitContext } from "./todo.context";
 
 export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);

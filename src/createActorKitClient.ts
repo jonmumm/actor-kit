@@ -68,7 +68,9 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
 
     socket.addEventListener("message", (event: MessageEvent) => {
       try {
-        const { operations, checksum } = JSON.parse(event.data);
+        const { operations, checksum } = JSON.parse(
+          typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data)
+        );
         // todo use the checksum to store snapshot locally for local sync
         currentSnapshot = produce(currentSnapshot, (draft) => {
           applyPatch(draft, operations);

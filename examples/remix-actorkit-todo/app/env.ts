@@ -1,5 +1,5 @@
 import type { ActorServer } from "actor-kit";
-import type { TodoServer } from "shared/todo.server";
+import type { TodoServer } from "./todo.server";
 import type { Remix } from "./server";
 
 declare module "@remix-run/cloudflare" {

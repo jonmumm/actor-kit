@@ -52,8 +52,8 @@ The todo list page (`src/app/lists/[id]/page.tsx`) fetches initial state and set
 ```typescript
 import { getUserId } from "@/session";
 import { createAccessToken, createActorFetch } from "actor-kit/server";
-import { TodoActorKitProvider } from "shared/todo.context";
-import type { TodoMachine } from "shared/todo.machine";
+import { TodoActorKitProvider } from "./todo.context";
+import type { TodoMachine } from "./todo.machine";
 import { TodoList } from "./components";
 
 const host = process.env.ACTOR_KIT_HOST!;
@@ -104,7 +104,7 @@ The `TodoList` component (`src/app/lists/[id]/components.tsx`) demonstrates owne
 
 import { UserContext } from "@/app/user-context";
 import React, { useContext, useState } from "react";
-import { TodoActorKitContext } from "shared/todo.context";
+import { TodoActorKitContext } from "./todo.context";
 
 export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
@@ -188,7 +188,7 @@ import { DurableObjectNamespace } from "@cloudflare/workers-types";
 import { AnyActorServer } from "actor-kit";
 import { createActorKitRouter } from "actor-kit/worker";
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { Todo, TodoServer } from "shared/todo.server";
+import { Todo, TodoServer } from "./todo.server";
 
 interface Env {
   TODO: DurableObjectNamespace<TodoServer>;

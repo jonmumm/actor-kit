@@ -8,8 +8,8 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
-import { useSyncExternalStoreWithSelector } from "use-sync-external-store/shim/with-selector";
 import type {
   ActorKitClient,
   ActorKitClientProps,
@@ -104,4 +104,87 @@ export function createActorKitContext<TMachine extends ActorKitStateMachine>(
 
 function defaultCompare<T>(a: T, b: T) {
   return a === b;
+}
+
+
+function useSyncExternalStoreWithSelector<Snapshot, Selection>(
+  subscribe: (onStoreChange: () => void) => () => void,
+  getSnapshot: () => Snapshot,
+  getServerSnapshot: undefined | null | (() => Snapshot),
+  selector: (snapshot: Snapshot) => Selection,
+  isEqual?: (a: Selection, b: Selection) => boolean
+): Selection {
+  const instRef = useRef<{
+    hasValue: boolean;
+    value: Selection | null;
+  }>({
+    hasValue: false,
+    value: null,
+  });
+
+  const [getSelection, getServerSelection, subscribeWithSelector] = useMemo(() => {
+    let hasMemo = false;
+    let memoizedSnapshot: Snapshot;
+    let memoizedSelection: Selection;
+
+    const memoizedSelector = (nextSnapshot: Snapshot) => {
+      if (!hasMemo) {
+        hasMemo = true;
+        memoizedSnapshot = nextSnapshot;
+        const nextSelection = selector(nextSnapshot);
+        if (isEqual !== undefined && instRef.current.hasValue) {
+          const currentSelection = instRef.current.value as Selection;
+          if (isEqual(currentSelection, nextSelection)) {
+            memoizedSelection = currentSelection;
+            return currentSelection;
+          }
+        }
+        memoizedSelection = nextSelection;
+        return nextSelection;
+      }
+
+      if (Object.is(memoizedSnapshot, nextSnapshot)) {
+        return memoizedSelection;
+      }
+
+      const nextSelection = selector(nextSnapshot);
+
+      if (isEqual !== undefined && isEqual(memoizedSelection, nextSelection)) {
+        memoizedSnapshot = nextSnapshot;
+        return memoizedSelection;
+      }
+
+      memoizedSnapshot = nextSnapshot;
+      memoizedSelection = nextSelection;
+      return nextSelection;
+    };
+
+    const getSnapshotWithSelector = () => memoizedSelector(getSnapshot());
+    const getServerSnapshotWithSelector = getServerSnapshot
+      ? () => memoizedSelector(getServerSnapshot())
+      : undefined;
+
+    const subscribeWithSelector = (onStoreChange: () => void) => {
+      return subscribe(() => {
+        const nextSelection = getSnapshotWithSelector();
+        if (!isEqual || !isEqual(memoizedSelection, nextSelection)) {
+          onStoreChange();
+        }
+      });
+    };
+
+    return [getSnapshotWithSelector, getServerSnapshotWithSelector, subscribeWithSelector];
+  }, [getSnapshot, getServerSnapshot, selector, isEqual]);
+
+  const value = useSyncExternalStore(
+    subscribeWithSelector,
+    getSelection,
+    getServerSelection
+  );
+
+  // Update the instRef
+  instRef.current.hasValue = true;
+  instRef.current.value = value;
+
+  return value;
 }

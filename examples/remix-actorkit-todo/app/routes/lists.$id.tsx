@@ -1,11 +1,9 @@
 import { LoaderFunctionArgs } from "@remix-run/node";
 import { json, useLoaderData } from "@remix-run/react";
-// import { getUserId } from "~/session";
-// import { TodoActorKitProvider } from "~/shared/todo.context";
 import { createAccessToken, createActorFetch } from "actor-kit/server";
-import { TodoList } from "shared/todo.components";
-import { TodoActorKitProvider } from "shared/todo.context";
-import type { TodoMachine } from "shared/todo.machine";
+import { TodoList } from "../todo.components";
+import { TodoActorKitProvider } from "../todo.context";
+import type { TodoMachine } from "../todo.machine";
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
   const host = process.env.ACTOR_KIT_HOST!;

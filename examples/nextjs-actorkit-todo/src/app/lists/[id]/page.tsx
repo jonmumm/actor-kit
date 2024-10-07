@@ -1,7 +1,7 @@
 import { getUserId } from "@/session";
 import { createAccessToken, createActorFetch } from "actor-kit/server";
-import { TodoActorKitProvider } from "shared/todo.context";
-import type { TodoMachine } from "shared/todo.machine";
+import { TodoActorKitProvider } from "../../../todo.context";
+import type { TodoMachine } from "../../../todo.machine";
 import { TodoList } from "./components";
 
 const host = process.env.ACTOR_KIT_HOST!;

@@ -1,7 +1,6 @@
 import { jwtVerify, SignJWT } from "jose";
-import type * as Party from "partykit/server";
 import type { AnyStateMachine } from "xstate";
-import { xstateMigrate } from "xstate-migrate";
+// import { xstateMigrate } from "xstate-migrate";
 import { PERSISTED_SNAPSHOT_KEY } from "./constants";
 import { CallerStringSchema } from "./schemas";
 import { Caller } from "./types";
@@ -11,10 +10,10 @@ import { Caller } from "./types";
  * @param storage The storage interface to retrieve the snapshot from.
  * @returns The parsed snapshot or null if not found.
  */
-export const loadPersistedSnapshot = async (storage: Party.Storage) => {
-  const persistentSnapshot = await storage.get(PERSISTED_SNAPSHOT_KEY);
-  return persistentSnapshot ? JSON.parse(persistentSnapshot as string) : null;
-};
+// export const loadPersistedSnapshot = async (storage: Party.Storage) => {
+//   const persistentSnapshot = await storage.get(PERSISTED_SNAPSHOT_KEY);
+//   return persistentSnapshot ? JSON.parse(persistentSnapshot as string) : null;
+// };
 
 /**
  * Applies any necessary migrations to the persisted snapshot.
@@ -22,13 +21,13 @@ export const loadPersistedSnapshot = async (storage: Party.Storage) => {
  * @param parsedSnapshot The snapshot to migrate.
  * @returns The migrated snapshot.
  */
-export const applyMigrations = (
-  machine: AnyStateMachine,
-  parsedSnapshot: any
-) => {
-  const migrations = xstateMigrate.generateMigrations(machine, parsedSnapshot);
-  return xstateMigrate.applyMigrations(parsedSnapshot, migrations);
-};
+// export const applyMigrations = (
+//   machine: AnyStateMachine,
+//   parsedSnapshot: any
+// ) => {
+//   const migrations = xstateMigrate.generateMigrations(machine, parsedSnapshot);
+//   return xstateMigrate.applyMigrations(parsedSnapshot, migrations);
+// };
 
 export const createConnectionToken = async (
   actorId: string,
