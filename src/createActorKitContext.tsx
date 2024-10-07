@@ -3,12 +3,14 @@
 import React, {
   createContext,
   ReactNode,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
-import { useSyncExternalStoreWithSelector } from "use-sync-external-store/shim/with-selector";
 import type {
   ActorKitClient,
   ActorKitClientProps,
@@ -25,36 +27,37 @@ export function createActorKitContext<TMachine extends ActorKitStateMachine>(
 ) {
   const ActorKitContext = createContext<ActorKitClient<TMachine> | null>(null);
 
-  const Provider: React.FC<{
-    children: ReactNode;
-    options: Omit<ActorKitClientProps<TMachine>, 'actorType'>;
-  }> = ({ children, options }) => {
-    const [client, setClient] = useState<ActorKitClient<TMachine> | null>(null);
-    const clientRef = useRef<ActorKitClient<TMachine> | null>(null);
+  const Provider: React.FC<
+    {
+      children: ReactNode;
+    } & Omit<ActorKitClientProps<TMachine>, "actorType">
+  > = ({ children, ...props }) => {
+    const connectedRef = useRef<boolean>(false);
+    const clientConfig = useMemo(
+      () => ({
+        ...props,
+        actorType,
+      }),
+      [
+        props.host,
+        props.actorId,
+        props.accessToken,
+        props.checksum,
+        props.initialSnapshot,
+        actorType,
+      ]
+    );
+
+    const [client] = useState(() => {
+      return createActorKitClient<TMachine>(clientConfig);
+    });
 
     useEffect(() => {
-      if (!clientRef.current) {
-        const newClient = createActorKitClient<TMachine>({
-          ...options,
-          actorType,
-        });
-        clientRef.current = newClient;
-        newClient.connect().then(() => {
-          setClient(newClient);
-        });
+      if (!connectedRef.current) {
+        client.connect().then(() => {});
+        connectedRef.current = true;
       }
-
-      return () => {
-        if (clientRef.current) {
-          clientRef.current.disconnect();
-          clientRef.current = null;
-        }
-      };
-    }, [options]);
-
-    if (!client) {
-      return null; // or a loading indicator
-    }
+    }, [client, connectedRef]); // Use memoized config as dependency
 
     return (
       <ActorKitContext.Provider value={client}>
@@ -98,6 +101,71 @@ export function createActorKitContext<TMachine extends ActorKitStateMachine>(
     useSelector,
     useSend,
   };
+}
+
+function useSyncExternalStoreWithSelector<Snapshot, Selection>(
+  subscribe: (onStoreChange: () => void) => () => void,
+  getSnapshot: () => Snapshot,
+  getServerSnapshot: undefined | null | (() => Snapshot),
+  selector: (snapshot: Snapshot) => Selection,
+  isEqual?: (a: Selection, b: Selection) => boolean
+): Selection {
+  const [getSelection, getServerSelection] = useMemo(() => {
+    let hasMemo = false;
+    let memoizedSnapshot: Snapshot;
+    let memoizedSelection: Selection;
+
+    const memoizedSelector = (nextSnapshot: Snapshot) => {
+      if (!hasMemo) {
+        hasMemo = true;
+        memoizedSnapshot = nextSnapshot;
+        memoizedSelection = selector(nextSnapshot);
+        return memoizedSelection;
+      }
+
+      if (Object.is(memoizedSnapshot, nextSnapshot)) {
+        return memoizedSelection;
+      }
+
+      const nextSelection = selector(nextSnapshot);
+
+      if (isEqual && isEqual(memoizedSelection, nextSelection)) {
+        memoizedSnapshot = nextSnapshot;
+        return memoizedSelection;
+      }
+
+      memoizedSnapshot = nextSnapshot;
+      memoizedSelection = nextSelection;
+      return nextSelection;
+    };
+
+    const getSnapshotWithSelector = () => memoizedSelector(getSnapshot());
+    const getServerSnapshotWithSelector = getServerSnapshot
+      ? () => memoizedSelector(getServerSnapshot())
+      : undefined;
+
+    return [getSnapshotWithSelector, getServerSnapshotWithSelector];
+  }, [getSnapshot, getServerSnapshot, selector, isEqual]);
+
+  const subscribeWithSelector = useCallback(
+    (onStoreChange: () => void) => {
+      let previousSelection = getSelection();
+      return subscribe(() => {
+        const nextSelection = getSelection();
+        if (!isEqual || !isEqual(previousSelection, nextSelection)) {
+          previousSelection = nextSelection;
+          onStoreChange();
+        }
+      });
+    },
+    [subscribe, getSelection, isEqual]
+  );
+
+  return useSyncExternalStore(
+    subscribeWithSelector,
+    getSelection,
+    getServerSelection
+  );
 }
 
 function defaultCompare<T>(a: T, b: T) {

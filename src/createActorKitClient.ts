@@ -1,6 +1,6 @@
 import { applyPatch } from "fast-json-patch";
 import { produce } from "immer";
-import PartySocket from "partysocket";
+
 import {
   ActorKitStateMachine,
   CallerSnapshotFrom,
@@ -11,9 +11,9 @@ export type ActorKitClientProps<TMachine extends ActorKitStateMachine> = {
   host: string;
   actorType: string;
   actorId: string;
-  connectionId: string;
-  connectionToken: string;
-  initialState: CallerSnapshotFrom<TMachine>;
+  checksum: string;
+  accessToken: string;
+  initialSnapshot: CallerSnapshotFrom<TMachine>;
   onStateChange?: (newState: CallerSnapshotFrom<TMachine>) => void;
   onError?: (error: Error) => void;
 };
@@ -40,43 +40,72 @@ type Listener<T> = (state: T) => void;
 export function createActorKitClient<TMachine extends ActorKitStateMachine>(
   props: ActorKitClientProps<TMachine>
 ): ActorKitClient<TMachine> {
-  let currentState = props.initialState;
-  let socket: PartySocket | null = null;
+  let currentSnapshot = props.initialSnapshot;
+  let socket: WebSocket | null = null;
   const listeners: Set<Listener<CallerSnapshotFrom<TMachine>>> = new Set();
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 5;
 
+  /**
+   * Notifies all registered listeners with the current state.
+   */
   const notifyListeners = () => {
-    listeners.forEach((listener) => listener(currentState));
+    listeners.forEach((listener) => listener(currentSnapshot));
   };
 
+  /**
+   * Establishes a WebSocket connection to the Actor Kit server.
+   * @returns {Promise<void>} A promise that resolves when the connection is established.
+   */
   const connect = async () => {
-    socket = new PartySocket({
-      host: props.host,
-      party: props.actorType,
-      room: props.actorId,
-      protocol: getWebsocketServerProtocol(props.host),
-      id: props.connectionId,
-      query: { token: props.connectionToken },
+    const url = getWebSocketUrl(props);
+
+    socket = new WebSocket(url);
+
+    socket.addEventListener("open", () => {
+      reconnectAttempts = 0;
     });
 
     socket.addEventListener("message", (event: MessageEvent) => {
       try {
-        const { operations } = JSON.parse(event.data);
-        currentState = produce(currentState, (draft) => {
+        const { operations, checksum } = JSON.parse(
+          typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data)
+        );
+        // todo use the checksum to store snapshot locally for local sync
+        currentSnapshot = produce(currentSnapshot, (draft) => {
           applyPatch(draft, operations);
         });
-        props.onStateChange?.(currentState);
+        props.onStateChange?.(currentSnapshot);
         notifyListeners();
       } catch (error) {
+        console.error(`[ActorKitClient] Error processing message:`, error);
         props.onError?.(error as Error);
       }
     });
 
-    socket.addEventListener("error", (error) => {
-      props.onError?.(new Error("WebSocket error: " + error.toString()));
+    socket.addEventListener("error", (error: any) => {
+      console.error(`[ActorKitClient] WebSocket error:`, error);
+      console.error(`[ActorKitClient] Error details:`, {
+        message: error.message,
+        type: error.type,
+        target: error.target,
+        eventPhase: error.eventPhase,
+      });
+      props.onError?.(new Error(`WebSocket error: ${JSON.stringify(error)}`));
     });
 
-    socket.addEventListener("close", () => {
-      props.onError?.(new Error("WebSocket connection closed"));
+    // todo, how do we reconnect when a user returns to the tab
+    // later after it's disconnected
+
+    socket.addEventListener("close", (event) => {
+      // Implement reconnection logic
+      if (reconnectAttempts < maxReconnectAttempts) {
+        reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+        setTimeout(connect, delay);
+      } else {
+        console.error(`[ActorKitClient] Max reconnection attempts reached`);
+      }
     });
 
     return new Promise<void>((resolve) => {
@@ -84,11 +113,20 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
     });
   };
 
+  /**
+   * Closes the WebSocket connection to the Actor Kit server.
+   */
   const disconnect = () => {
-    socket?.close();
-    socket = null;
+    if (socket) {
+      socket.close();
+      socket = null;
+    }
   };
 
+  /**
+   * Sends an event to the Actor Kit server.
+   * @param {ClientEventFrom<TMachine>} event - The event to send.
+   */
   const send = (event: ClientEventFrom<TMachine>) => {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(event));
@@ -99,8 +137,17 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
     }
   };
 
-  const getState = () => currentState;
+  /**
+   * Retrieves the current state of the actor.
+   * @returns {CallerSnapshotFrom<TMachine>} The current state.
+   */
+  const getState = () => currentSnapshot;
 
+  /**
+   * Subscribes a listener to state changes.
+   * @param {Listener<CallerSnapshotFrom<TMachine>>} listener - The listener function to be called on state changes.
+   * @returns {() => void} A function to unsubscribe the listener.
+   */
   const subscribe = (listener: Listener<CallerSnapshotFrom<TMachine>>) => {
     listeners.add(listener);
     return () => {
@@ -117,14 +164,25 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
   };
 }
 
-function isLocal(apiHost: string): boolean {
-  return (
-    apiHost.startsWith("localhost") ||
-    apiHost.startsWith("0.0.0.0") ||
-    apiHost.startsWith("127.0.0.1")
-  );
-}
+function getWebSocketUrl(props: ActorKitClientProps<any>): string {
+  const { host, actorId, actorType, accessToken, checksum } = props;
 
-function getWebsocketServerProtocol(apiHost: string): "ws" | "wss" {
-  return isLocal(apiHost) ? "ws" : "wss";
+  // Determine protocol (ws or wss)
+  const protocol =
+    /^(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(
+      host
+    )
+      ? "ws"
+      : "wss";
+
+  // Construct base URL
+  const baseUrl = `${protocol}://${host}/api/${actorType}/${actorId}`;
+
+  // Add query parameters
+  const params = new URLSearchParams({ accessToken });
+  if (checksum) params.append("checksum", checksum);
+
+  const finalUrl = `${baseUrl}?${params.toString()}`;
+
+  return finalUrl;
 }

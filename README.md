@@ -2,25 +2,50 @@
 
 Actor Kit is a powerful library for creating and managing actor-based state machines in Cloudflare Workers, leveraging XState for robust state management. It provides a comprehensive framework for handling different types of events from various sources and manages the lifecycle of actors in a distributed environment.
 
-For a practical implementation, check out our [Next.js Todo List Example](/examples/nextjs-todo) which demonstrates how to integrate Actor Kit with a Next.js application to create a real-time, event-driven todo list.
+## 📚 Table of Contents
 
-## 🚀 Installation
+- [💾 Installation](#-installation)
+- [🌟 Key Concepts](#-key-concepts)
+- [🛠️ Usage](#️-usage)
+  - [1️⃣ Define your event schemas and types](#1️⃣-define-your-event-schemas-and-types)
+  - [2️⃣ Define your state machine](#2️⃣-define-your-state-machine)
+  - [3️⃣ Set up the Actor Server](#3️⃣-set-up-the-actor-server)
+  - [4️⃣ Configure Wrangler](#4️⃣-configure-wrangler)
+  - [5️⃣ Create a Cloudflare Worker with Actor Kit Router](#5️⃣-create-a-cloudflare-worker-with-actor-kit-router)
+  - [6️⃣ Create the Actor Kit Context](#6️⃣-create-the-actor-kit-context)
+  - [7️⃣ Fetch data server-side](#7️⃣-fetch-data-server-side)
+  - [8️⃣ Create a client-side component](#8️⃣-create-a-client-side-component)
+- [🚀 Getting Started](#-getting-started)
+- [🗂️ Framework Examples](#️-framework-examples)
+  - [⚛️ Next.js](/examples/nextjs-actorkit-todo/README.md)
+  - [🎸 Remix](/examples/remix-actorkit-todo/README.md)
+- [📖 API Reference](#-api-reference)
+  - [🔧 actor-kit/worker](#-actor-kitworker)
+  - [🖥️ actor-kit/server](#️-actor-kitserver)
+  - [🌐 actor-kit/browser](#-actor-kitbrowser)
+  - [⚛️ actor-kit/react](#️-actor-kitreact)
+- [🔑 TypeScript Types](#-typescript-types)
+- [👥 Caller Types](#-caller-types)
+- [🔐 Public and Private Data](#-public-and-private-data)
+- [📜 License](#-license)
+
+## 💾 Installation
 
 To install Actor Kit, use your preferred package manager:
 
 ```bash
-npm install actor-kit xstate zod partykit
+npm install actor-kit xstate zod
 # or
-yarn add actor-kit xstate zod partykit
+yarn add actor-kit xstate zod
 # or
-pnpm add actor-kit xstate zod partykit
+pnpm add actor-kit xstate zod
 ```
 
 ## 🌟 Key Concepts
 
 - 🖥️ **Server-Side Rendering**: Fetch initial state server-side for optimal performance and SEO.
 - ⚡ **Real-time Updates**: Changes are immediately reflected across all connected clients, ensuring a responsive user experience.
-- 🔒 **Type Safety**: Leverage TypeScript and Zod for robust type checking and runtime validation.
+- 🛡️ **Type Safety**: Leverage TypeScript and Zod for robust type checking and runtime validation.
 - 🎭 **Event-Driven Architecture**: All state changes are driven by events, providing a clear and predictable data flow.
 - 🧠 **State Machine Logic**: Powered by XState, making complex state management more manageable and visualizable.
 - 🔄 **Seamless Synchronization**: Actor Kit handles state synchronization between server and clients automatically.
@@ -29,18 +54,29 @@ pnpm add actor-kit xstate zod partykit
 
 ## 🛠️ Usage
 
-Here's a comprehensive example of how to use Actor Kit to create a todo list application with Next.js, fetching data server-side:
+Here's a comprehensive example of how to use Actor Kit to create a todo list application with Next.js and Cloudflare Workers:
 
-### 1. Define your event schemas and types
+### 1️⃣ Define your event schemas and types
+
+First, define the schemas and types for your events:
 
 ```typescript
-// src/server/todo.schemas.ts
+// src/todo.schemas.ts
 import { z } from "zod";
 
 export const TodoClientEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
-  z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
-  z.object({ type: z.literal("DELETE_TODO"), id: z.string() }),
+  z.object({
+    type: z.literal("ADD_TODO"),
+    text: z.string(),
+  }),
+  z.object({
+    type: z.literal("TOGGLE_TODO"),
+    id: z.string(),
+  }),
+  z.object({
+    type: z.literal("DELETE_TODO"),
+    id: z.string(),
+  }),
 ]);
 
 export const TodoServiceEventSchema = z.discriminatedUnion("type", [
@@ -51,11 +87,9 @@ export const TodoServiceEventSchema = z.discriminatedUnion("type", [
     ),
   }),
 ]);
-```
 
-```typescript
-// src/server/todo.types.ts
-import type { WithActorKitEvent } from "actor-kit";
+// src/todo.types.ts
+import type { WithActorKitEvent, ActorKitSystemEvent } from "actor-kit";
 import { z } from "zod";
 import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
 
@@ -64,13 +98,16 @@ export type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
 
 export type TodoEvent =
   | WithActorKitEvent<TodoClientEvent, "client">
-  | WithActorKitEvent<TodoServiceEvent, "service">;
+  | WithActorKitEvent<TodoServiceEvent, "service">
+  | ActorKitSystemEvent;
 ```
 
-### 2. Define your state machine
+### 2️⃣ Define your state machine
+
+Now that we have our event types defined, we can create our state machine:
 
 ```typescript
-// src/server/todo.actor.ts
+// src/todo.machine.ts
 import type { CreateMachineProps } from "actor-kit";
 import { assign, setup } from "xstate";
 import type { TodoEvent } from "./todo.types";
@@ -84,7 +121,7 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
           todos: Array<{ id: string; text: string; completed: boolean }>;
           lastSync: number | null;
         };
-        private: Record<string, { lastAccessTime?: Date }>;
+        private: Record<string, { lastAccessTime?: number }>;
       },
       events: {} as TodoEvent,
     },
@@ -102,37 +139,14 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
           };
         },
       }),
-      toggleTodo: assign({
-        public: ({ context, event }) => {
-          if (event.type !== "TOGGLE_TODO") return context.public;
-          return {
-            ...context.public,
-            todos: context.public.todos.map((todo) =>
-              todo.id === event.id
-                ? { ...todo, completed: !todo.completed }
-                : todo
-            ),
-            lastSync: Date.now(),
-          };
-        },
-      }),
-      deleteTodo: assign({
-        public: ({ context, event }) => {
-          if (event.type !== "DELETE_TODO") return context.public;
-          return {
-            ...context.public,
-            todos: context.public.todos.filter((todo) => todo.id !== event.id),
-            lastSync: Date.now(),
-          };
-        },
-      }),
+      // ... other actions ...
     },
     guards: {
-      isOwner: ({ context, event }) =>
-        event.caller.id === context.public.ownerId,
+      // ... guards ...
     },
   }).createMachine({
-    id,
+    id: "todoList",
+    initial: "idle",
     context: {
       public: {
         ownerId: caller.id,
@@ -141,85 +155,148 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
       },
       private: {},
     },
-    initial: "idle",
     states: {
       idle: {
         on: {
-          ADD_TODO: { actions: "addTodo", guard: "isOwner" },
-          TOGGLE_TODO: { actions: "toggleTodo", guard: "isOwner" },
-          DELETE_TODO: { actions: "deleteTodo", guard: "isOwner" },
+          ADD_TODO: {
+            actions: "addTodo",
+          },
+          // ... other transitions ...
         },
       },
+      // ... other states ...
     },
   });
-
-export type TodoMachine = ReturnType<typeof createTodoListMachine>;
 ```
 
-### 3. Set up the Actor Server
+### 3️⃣ Set up the Actor Server
+
+Create the Actor Server using the `createMachineServer` function:
 
 ```typescript
-// src/server/todo.server.ts
+// src/todo.server.ts
 import { createMachineServer } from "actor-kit/worker";
-import { createTodoListMachine } from "./todo.actor";
+import { createTodoListMachine } from "./todo.machine";
 import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
 
-const TodoListServer = createMachineServer(
-  createTodoListMachine,
-  {
+export const TodoActorKitServer = createMachineServer({
+  createMachine: createTodoListMachine,
+  eventSchemas: {
     client: TodoClientEventSchema,
     service: TodoServiceEventSchema,
   },
-  {
+  options: {
     persisted: true,
-  }
-);
-
-export default TodoListServer;
+  },
+});
 ```
 
-### 4. Create the Actor Kit Context
+### 4️⃣ Configure Wrangler
+
+Create a `wrangler.toml` file in your project root:
+
+```toml
+name = "nextjs-actorkit-todo"
+main = "src/server.ts"
+compatibility_date = "2024-09-25"
+
+[vars]
+ACTOR_KIT_SECRET = "foobarbaz"
+
+[[durable_objects.bindings]]
+name = "TODO"
+class_name = "Todo"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Todo"]
+```
+
+### 5️⃣ Create a Cloudflare Worker with Actor Kit Router
+
+Create a new file, e.g., `src/server.ts`, to set up your Cloudflare Worker:
 
 ```typescript
-// src/app/lists/[id]/context.tsx
+// src/server.ts
+import { createActorKitRouter } from "actor-kit/worker";
+import { TodoActorKitServer } from "./todo.server";
+
+const actorKitRouter = createActorKitRouter(["todo"]);
+
+export default {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<Response> {
+    const url = new URL(request.url);
+
+    // Handle Actor Kit routes
+    if (url.pathname.startsWith("/api/")) {
+      return actorKitRouter(request, env, ctx);
+    }
+
+    // Handle other routes or return a default response
+    return new Response("Welcome to Actor Kit on Cloudflare Workers!");
+  },
+};
+```
+
+### 6️⃣ Create the Actor Kit Context
+
+```typescript
+// src/todo.context.tsx
 "use client";
 
-import { TodoMachine } from "@/server/todo.actor";
+import type { TodoMachine } from "./todo.machine";
 import { createActorKitContext } from "actor-kit/react";
 
 export const TodoActorKitContext = createActorKitContext<TodoMachine>("todo");
 export const TodoActorKitProvider = TodoActorKitContext.Provider;
 ```
 
-### 5. Fetch data server-side
+### 7️⃣ Fetch data server-side
 
 ```typescript
 // src/app/lists/[id]/page.tsx
-import { createActorFetch } from "actor-kit/server";
-import type { TodoMachine } from "../../../server/todo.actor";
+import { getUserId } from "@/session";
+import { createAccessToken, createActorFetch } from "actor-kit/server";
+import { TodoActorKitProvider } from "./todo.context";
+import type { TodoMachine } from "./todo.machine";
 import { TodoList } from "./components";
-import { TodoActorKitProvider } from "./context";
 
-const fetchTodoActor = createActorFetch<TodoMachine>("todo");
+const host = process.env.ACTOR_KIT_HOST!;
+const signingKey = process.env.ACTOR_KIT_SECRET!;
 
-export default async function TodoPage({ params }: { params: { id: string } }) {
-  const listId = params.id;
-  const userId = "user-123"; // Replace with actual user ID logic
+const fetchTodoActor = createActorFetch<TodoMachine>({
+  actorType: "todo",
+  host,
+});
+
+export default async function TodoPage(props: { params: { id: string } }) {
+  const listId = props.params.id;
+  const userId = await getUserId();
+
+  const accessToken = await createAccessToken({
+    signingKey,
+    actorId: listId,
+    actorType: "todo",
+    callerId: userId,
+    callerType: "client",
+  });
 
   const payload = await fetchTodoActor({
     actorId: listId,
-    callerId: userId,
+    accessToken,
   });
 
   return (
     <TodoActorKitProvider
-      options={{
-        host: process.env.ACTOR_KIT_HOST!,
-        actorId: listId,
-        connectionId: payload.connectionId,
-        connectionToken: payload.connectionToken,
-        initialState: payload.snapshot,
-      }}
+      host={host}
+      actorId={listId}
+      accessToken={accessToken}
+      checksum={payload.checksum}
+      initialSnapshot={payload.snapshot}
     >
       <TodoList />
     </TodoActorKitProvider>
@@ -227,14 +304,14 @@ export default async function TodoPage({ params }: { params: { id: string } }) {
 }
 ```
 
-### 6. Create a client-side component
+### 8️⃣ Create a client-side component
 
 ```typescript
-// app/lists/[id]/components.tsx
+// src/app/lists/[id]/components.tsx
 "use client";
 
 import React, { useState } from "react";
-import { TodoActorKitContext } from "./context";
+import { TodoActorKitContext } from "./todo.context";
 
 export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
@@ -285,131 +362,354 @@ export function TodoList() {
 }
 ```
 
-This comprehensive example demonstrates how to set up and use Actor Kit in a Next.js application, including:
+This example demonstrates how to set up and use Actor Kit in a Next.js application with Cloudflare Workers, including:
 
-1. Defining the state machine with proper typing
-2. Setting up the Actor Server
-3. Creating event schemas and types
-4. Setting up the Actor Kit context
-5. Fetching data server-side
-6. Creating a client-side component that interacts with the actor
-
-By following this structure, you can create robust, type-safe, and real-time applications using Actor Kit and Next.js.
+1. Defining event schemas and types
+2. Creating the state machine with proper typing
+3. Setting up the Actor Server
+4. Configuring Wrangler for Cloudflare Workers
+5. Creating a Cloudflare Worker with Actor Kit Router
+6. Setting up the Actor Kit context
+7. Fetching data server-side with access token creation
+8. Creating a client-side component that interacts with the actor
 
 ## 🚀 Getting Started
 
 1. Install dependencies:
 
    ```bash
-   npm install actor-kit xstate zod partykit
+   npm install actor-kit xstate zod
+   npm install -D wrangler
    ```
 
 2. Set up environment variables:
 
-   - `ACTOR_KIT_HOST`: The host for your Actor Kit server
-   - `ACTOR_KIT_SECRET`: Secret key for Actor Kit
+   - `ACTOR_KIT_SECRET`: Secret key for Actor Kit (required by Actor Kit to verify incoming requests and by external services to sign outgoing requests)
+   - `ACTOR_KIT_HOST`: The host for your Actor Kit server (only required for external access, e.g., from a Next.js server)
 
-3. Create a PartyKit configuration file (`partykit.json`) in your project root:
+3. Create a `wrangler.toml` file in your project root:
 
-   ```json
-   {
-     "$schema": "https://www.partykit.io/schema.json",
-     "name": "your-project-name",
-     "main": "build/index.js",
-     "compatibilityDate": "2023-12-22",
-     "parties": {
-       "todo": "src/server/todo.server.ts"
-     },
-     "serve": "public"
-   }
+   ```toml
+   name = "your-project-name"
+   main = "src/server.ts"
+   compatibility_date = "2024-09-25"
+
+   [vars]
+   ACTOR_KIT_SECRET = "foo-bar-buzz-bar"
+
+   # Durable Object bindings
+   [[durable_objects.bindings]]
+   name = "TodoActorKitServer"
+   class_name = "TodoActorKitServer"
+
+   # Durable Object migrations
+   [[migrations]]
+   tag = "v1"
+   new_classes = ["TodoActorKitServer"]
    ```
 
-   This configuration tells PartyKit where to find your actor server file and sets up the necessary routing.
+   Notes:
 
-4. Start the PartyKit development server:
+   - Ensure that `ACTOR_KIT_SECRET` is kept secure and not exposed publicly.
+   - The `durable_objects.bindings` section creates a binding between your Worker and the Durable Object classes that implement your actor servers.
+   - The `migrations` section is necessary to create the Durable Object classes in your Cloudflare account.
+
+4. Create your Worker script (e.g., `src/server.ts`):
+
+   ```typescript
+   import { createActorKitRouter } from "actor-kit/worker";
+   import { TodoActorKitServer } from "./todo.server";
+
+   const actorKitRouter = createActorKitRouter({
+     todo: TodoActorKitServer,
+   });
+
+   export default {
+     async fetch(
+       request: Request,
+       env: Env,
+       ctx: ExecutionContext
+     ): Promise<Response> {
+       const url = new URL(request.url);
+
+       // Handle Actor Kit routes
+       if (url.pathname.startsWith("/api/")) {
+         return actorKitRouter(request, env, ctx);
+       }
+
+       // Handle other routes, return a default response, or set up a web rendering framework
+       return new Response("Hello World!");
+     },
+   };
+   ```
+
+5. Start the Cloudflare Worker development server:
 
    ```bash
-   npx partykit dev
+   npx wrangler dev
    ```
 
-5. In a separate terminal, run your Next.js development server:
+6. Deploy your Worker to Cloudflare:
+
+   ```bash
+   npx wrangler deploy
+   ```
+
+7. If you're using Next.js or another external server, set up your `ACTOR_KIT_HOST` environment variable to point to your deployed Worker's URL, then run your development server:
+
    ```bash
    npm run dev
    ```
 
-## 📚 API Reference
+By following these steps, you'll have set up your Cloudflare Worker with the necessary Durable Object bindings to run your Actor Kit servers, implemented the `createActorKitRouter` to handle routing to the appropriate Durable Objects, and deployed your Worker to Cloudflare's edge network.
 
-### `actor-kit/worker`
+## 🗂️ Framework Examples
 
-#### `createMachineServer(createMachine, eventSchemas, options?)`
+Actor Kit includes example todo list applications demonstrating integration with popular web frameworks.
+
+- [Next.js example](/examples/nextjs-actorkit-todo/README.md) in `/examples/nextjs-actorkit-todo`
+- [Remix example](/examples/remix-actorkit-todo/README.md) in `/examples/remix-actorkit-todo`
+
+## 📖 API Reference
+
+### 🔧 `actor-kit/worker`
+
+#### `createMachineServer<TMachine, TEventSchemas, Env>({ createMachine, eventSchemas, options })`
 
 Creates an actor server to run on a Cloudflare Worker.
 
-- `createMachine`: Function that creates the state machine.
+- `TMachine`: Type parameter extending `ActorKitStateMachine`
+- `TEventSchemas`: Type parameter extending `EventSchemas`
+- `Env`: Type parameter extending `{ ACTOR_KIT_SECRET: string }`
+
+Parameters:
+- `createMachine`: Function that creates the state machine. It receives the following props:
+  ```typescript
+  {
+    id: string;
+    caller: Caller;
+  }
+  ```
 - `eventSchemas`: Object containing Zod schemas for different event types.
   - `client`: Schema for events from clients
   - `service`: Schema for events from services
 - `options`: (Optional) Additional options for the server.
   - `persisted`: Whether to persist the actor state (default: false)
 
-Returns an `ActorServer` class implementing the `Party.Server` interface.
+Returns a class that extends `DurableObject` and implements `ActorServer<TMachine, TEventSchemas, Env>`.
 
-### `actor-kit/server`
+Example usage:
 
-#### `createActorFetch<TMachine>(actorType)`
+```typescript
+import { createMachineServer } from 'actor-kit/worker';
+import { z } from 'zod';
 
-Creates a function for fetching actor data. Used in a trusted server environment.
+const TodoServer = createMachineServer({
+  createMachine: ({ id, caller }) => createTodoMachine({ id, caller }),
+  eventSchemas: {
+    client: z.discriminatedUnion('type', [
+      z.object({ type: z.literal('ADD_TODO'), text: z.string() }),
+      z.object({ type: z.literal('TOGGLE_TODO'), id: z.string() }),
+    ]),
+    service: z.discriminatedUnion('type', [
+      z.object({ type: z.literal('SYNC_TODOS'), todos: z.array(z.object({ id: z.string(), text: z.string(), completed: z.boolean() })) }),
+    ]),
+  },
+  options: { persisted: true },
+});
+```
 
-- `TMachine`: Type parameter representing the state machine type.
-- `actorType`: String identifier for the actor type.
+#### `createActorKitRouter<Env>(routes)`
 
-Returns a function `(props: object) => Promise<{ snapshot: CallerSnapshot, connectionId: string, connectionToken: string }>` that fetches a snapshot of the actor data.
+Creates a router for handling Actor Kit requests in a Cloudflare Worker.
 
-### `actor-kit/react`
+- `Env`: Type parameter extending `EnvWithDurableObjects`
+- `routes`: An array of actor types (as kebab-case strings)
 
-#### `createActorKitContext<TMachine>(actorType)`
+Returns a function `(request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>` that handles Actor Kit routing.
 
-Creates a React context for Actor Kit integration.
+Example usage:
 
-- `TMachine`: Type parameter representing the state machine type.
-- `actorType`: String identifier for the actor type.
+```typescript
+import { createActorKitRouter } from 'actor-kit/worker';
 
-Returns an object with:
+const actorKitRouter = createActorKitRouter(['todo', 'chat']);
 
-- `Provider`: React component to provide the Actor Kit client.
-- `useClient()`: Hook to access the Actor Kit client directly.
-- `useSelector(selector)`: Hook to select and subscribe to state only when it changes.
-- `useSend()`: Hook to get a function for sending events to the Actor Kit client.
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return actorKitRouter(request, env, ctx);
+  },
+};
+```
 
-### `actor-kit/browser`
+### 🖥️ `actor-kit/server`
 
-#### `createActorKitClient<TMachine>(props)`
+#### `createActorFetch<TMachine>({ actorType, host })`
+
+Creates a function for fetching actor data. Used in a trusted server environment, typically for server-side rendering or initial data fetching.
+
+- `TMachine`: Type parameter extending `ActorKitStateMachine`
+- `actorType`: String identifier for the actor type
+- `host`: The host URL for the Actor Kit server
+
+Returns a function with the following signature:
+```typescript
+(props: {
+  actorId: string;
+  accessToken: string;
+  input?: Record<string, unknown>;
+  waitFor?: string;
+}, options?: RequestInit) => Promise<{
+  snapshot: CallerSnapshotFrom<TMachine>;
+  checksum: string;
+}>
+```
+
+Example usage:
+
+```typescript
+import { createActorFetch } from 'actor-kit/server';
+import type { TodoMachine } from './todo.machine';
+
+const fetchTodoActor = createActorFetch<TodoMachine>({
+  actorType: 'todo',
+  host: 'your-worker.workers.dev',
+});
+
+const { snapshot, checksum } = await fetchTodoActor({
+  actorId: 'todo-123',
+  accessToken: 'your-access-token',
+  waitFor: 'TODOS_LOADED',
+});
+```
+
+#### `createAccessToken({ signingKey, actorId, actorType, callerId, callerType })`
+
+Creates an access token for authenticating with an actor.
+
+Parameters:
+- `signingKey`: String used to sign the token
+- `actorId`: Unique identifier for the actor
+- `actorType`: Type of the actor
+- `callerId`: Identifier for the caller
+- `callerType`: Type of the caller (e.g., 'client', 'service')
+
+Returns a Promise that resolves to a JWT token string.
+
+Example usage:
+
+```typescript
+import { createAccessToken } from 'actor-kit/server';
+
+const accessToken = await createAccessToken({
+  signingKey: process.env.ACTOR_KIT_SECRET!,
+  actorId: 'todo-123',
+  actorType: 'todo',
+  callerId: 'user-456',
+  callerType: 'client',
+});
+```
+
+### 🌐 `actor-kit/browser`
+
+#### `createActorKitClient<TMachine>(props: ActorKitClientProps<TMachine>)`
 
 Creates an Actor Kit client for managing state and communication with the server.
 
-## 🔑 Types
+- `TMachine`: Type parameter extending `ActorKitStateMachine`
 
-The following types are exported from the main `actor-kit` package:
+`ActorKitClientProps<TMachine>` includes:
+- `host`: String
+- `actorType`: String
+- `actorId`: String
+- `checksum`: String
+- `accessToken`: String
+- `initialSnapshot`: `CallerSnapshotFrom<TMachine>`
 
-### `WithActorKitEvent<TEvent, TCallerType>`
+Returns an `ActorKitClient<TMachine>` object with methods to interact with the actor.
 
-Utility type that wraps an event type with Actor Kit-specific properties.
+Example usage:
 
-### `CallerSnapshotFrom<TMachine>`
+```typescript
+import { createActorKitClient } from 'actor-kit/browser';
+import type { TodoMachine } from './todo.machine';
 
-Utility type to extract the caller-specific snapshot from a machine type.
+const client = createActorKitClient<TodoMachine>({
+  host: 'your-worker.workers.dev',
+  actorType: 'todo',
+  actorId: 'todo-123',
+  checksum: 'initial-checksum',
+  accessToken: 'your-access-token',
+  initialSnapshot: {
+    public: { todos: [] },
+    private: {},
+    value: 'idle',
+  },
+});
 
-### `ActorKitStateMachine`
+await client.connect();
+client.send({ type: 'ADD_TODO', text: 'Buy milk' });
+```
 
-Type definition for an Actor Kit state machine, extending XState's `StateMachine` type. Requires public and private context types to be defined.
+### ⚛️ `actor-kit/react`
 
-### `ClientEventFrom<TMachine>`
+#### `createActorKitContext<TMachine>(actorType: string)`
 
-Utility type to extract client events from an Actor Kit state machine.
+Creates a React context and associated hooks for integrating Actor Kit into a React application.
 
-## 🔒 Public and Private Data
+- `TMachine`: Type parameter extending `ActorKitStateMachine`
+- `actorType`: String identifier for the actor type
 
-Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information securely.
+Returns an object with:
+- `Provider`: React component to provide the Actor Kit client to its children
+- `useClient()`: Hook to access the Actor Kit client directly
+- `useSelector<T>(selector: (snapshot: CallerSnapshotFrom<TMachine>) => T)`: Hook to select and subscribe to specific parts of the state
+- `useSend()`: Hook to get a function for sending events to the Actor Kit client
+
+Example usage:
+
+```tsx
+import { createActorKitContext } from 'actor-kit/react';
+import type { TodoMachine } from './todo.machine';
+
+const TodoActorKitContext = createActorKitContext<TodoMachine>('todo');
+
+function App() {
+  return (
+    <TodoActorKitContext.Provider
+      host="your-worker.workers.dev"
+      actorId="todo-123"
+      accessToken="your-access-token"
+      checksum="initial-checksum"
+      initialSnapshot={{
+        public: { todos: [] },
+        private: {},
+        value: 'idle',
+      }}
+    >
+      <TodoList />
+    </TodoActorKitContext.Provider>
+  );
+}
+
+function TodoList() {
+  const todos = TodoActorKitContext.useSelector(state => state.public.todos);
+  const send = TodoActorKitContext.useSend();
+
+  return (
+    <ul>
+      {todos.map(todo => (
+        <li key={todo.id}>
+          {todo.text}
+          <button onClick={() => send({ type: 'TOGGLE_TODO', id: todo.id })}>
+            Toggle
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
 
 ## 👥 Caller Types
 
@@ -419,6 +719,103 @@ Actor Kit supports different types of callers, each with its own level of trust 
 - 🤖 `system`: Internal events generated by the actor system (handled internally)
 - 🔧 `service`: Events from trusted external services or internal microservices
 
-## 📄 License
+## 🔑 TypeScript Types
+
+The following key types are exported from the main `actor-kit` package:
+
+### `WithActorKitEvent<TEvent, TCallerType>`
+
+Utility type that wraps an event type with Actor Kit-specific properties. This is crucial for adding caller information and other metadata to your events.
+
+Example usage:
+
+```typescript
+import { WithActorKitEvent } from "actor-kit";
+
+type MyClientEvent =
+  | { type: "ADD_TODO"; text: string }
+  | { type: "TOGGLE_TODO"; id: string };
+
+type MyServiceEvent = {
+  type: "SYNC_TODOS";
+  todos: Array<{ id: string; text: string; completed: boolean }>;
+};
+
+type MyEvent =
+  | WithActorKitEvent<MyClientEvent, "client">
+  | WithActorKitEvent<MyServiceEvent, "service">
+  | ActorKitSystemEvent;
+```
+
+### `ActorKitSystemEvent`
+
+Type representing system events that Actor Kit generates internally. These events are automatically included in your machine's event type and are used to handle lifecycle operations.
+
+Key system events:
+
+- `INITIALIZE`: Fired when an actor is first created or resumed from storage.
+- `CONNECT`: Fired when a client connects to the actor.
+- `DISCONNECT`: Fired when a client disconnects from the actor.
+
+Example usage in a state machine:
+
+```typescript
+createMachine({
+  // ... other configuration ...
+  states: {
+    idle: {
+      on: {
+        INITIALIZE: {
+          actions: "initializeActor",
+        },
+        CONNECT: {
+          actions: "handleClientConnection",
+        },
+        DISCONNECT: {
+          actions: "handleClientDisconnection",
+        },
+        // ... other transitions ...
+      },
+    },
+    // ... other states ...
+  },
+});
+```
+
+### `CallerSnapshotFrom<TMachine>`
+
+Utility type to extract the caller-specific snapshot from a machine type. This is useful when working with the state in your components or actions.
+
+Example usage:
+
+```typescript
+import { CallerSnapshotFrom } from "actor-kit";
+import { TodoMachine } from "./todo.machine";
+
+type TodoSnapshot = CallerSnapshotFrom<TodoMachine>;
+
+function TodoList({ snapshot }: { snapshot: TodoSnapshot }) {
+  return (
+    <ul>
+      {snapshot.public.todos.map((todo) => (
+        <li key={todo.id}>{todo.text}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+### Other Types
+
+- `ActorKitStateMachine`: Type definition for an Actor Kit state machine, extending XState's `StateMachine` type.
+- `ClientEventFrom<TMachine>`: Utility type to extract client events from an Actor Kit state machine.
+
+By including these types in your Actor Kit implementation, you ensure type safety and proper handling of events and state across your application.
+
+## 🔐 Public and Private Data
+
+Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information securely.
+
+## 📜 License
 
 Actor Kit is [MIT licensed](LICENSE.md).

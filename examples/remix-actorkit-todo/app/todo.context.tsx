@@ -1,6 +1,6 @@
 "use client";
 
-import { TodoMachine } from "@/server/todo.actor";
+import type { TodoMachine } from "./todo.machine";
 import { createActorKitContext } from "actor-kit/react";
 
 export const TodoActorKitContext = createActorKitContext<TodoMachine>("todo");

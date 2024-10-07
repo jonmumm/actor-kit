@@ -1,0 +1,15 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "nextjs-actorkit-todo"
+main = "src/server.ts"
+compatibility_date = "2024-09-25"
+
+[vars]
+ACTOR_KIT_SECRET = "foobarbaz"
+
+[[durable_objects.bindings]]
+name = "TODO"
+class_name = "Todo"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Todo"]

@@ -1,20 +1,36 @@
 {
   "name": "actor-kit",
-  "version": "0.6.0",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "version": "0.13.0",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./browser": "./dist/browser.js",
-    "./server": "./dist/server.js",
-    "./react": "./dist/react.js",
-    "./worker": "./dist/worker.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js"
+    }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "rollup -c --bundleConfigAsCjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -25,22 +41,33 @@
   ],
   "author": "jonmumm",
   "license": "ISC",
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "react": "^17.0.0 || ^18.0.0",
+    "xstate": "^5.18.0",
+    "zod": "^3.23.0"
+  },
   "dependencies": {
+    "cloudflare": "^3.5.0",
     "fast-json-patch": "^3.1.1",
     "immer": "^10.1.1",
-    "jose": "^5.8.0",
-    "partykit": "^0.0.110",
-    "partysocket": "^1.0.2",
-    "use-sync-external-store": "^1.2.2",
-    "xstate": "^5.18.1",
-    "xstate-migrate": "^0.0.3",
-    "zod": "^3.23.8"
+    "jose": "^5.8.0"
   },
   "devDependencies": {
-    "@types/node": "^22.5.4",
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "@rollup/plugin-alias": "^5.1.1",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@types/node": "^22.7.4",
     "@types/react": "^18.3.9",
     "@types/use-sync-external-store": "^0.0.6",
     "react": "^18.3.1",
-    "typescript": "^5.6.2"
-  }
+    "rollup": "^4.24.0",
+    "rollup-plugin-dts": "^6.1.1",
+    "rollup-plugin-preserve-directives": "^0.4.0",
+    "rollup-plugin-typescript2": "^0.36.0",
+    "typescript": "^5.6.2",
+    "xstate": "^5.18.2",
+    "zod": "^3.23.8"
+  },
+  "type": "module"
 }

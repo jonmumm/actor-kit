@@ -1,9 +1,8 @@
-// app/todo/[id]/TodoList.tsx
 "use client";
 
-import { UserContext } from "@/app/user-context";
 import React, { useContext, useState } from "react";
-import { TodoActorKitContext } from "./context";
+import { TodoActorKitContext } from "./todo.context";
+import { UserContext } from "./user.context";
 
 export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
@@ -15,7 +14,6 @@ export function TodoList() {
     (state) => state.public.ownerId
   );
   const isOwner = ownerId === userId;
-  console.log({ ownerId, userId, isOwner });
 
   const handleAddTodo = (e: React.FormEvent) => {
     e.preventDefault();

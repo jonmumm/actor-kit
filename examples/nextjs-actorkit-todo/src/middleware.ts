@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { NextRequest, NextResponse } from "next/server";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+const JWT_SECRET = "your-secret-key"; // move to your env
 const ACCESS_TOKEN_COOKIE_KEY = "access-token";
 const REFRESH_TOKEN_COOKIE_KEY = "refresh-token";
 
