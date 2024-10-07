@@ -33,7 +33,7 @@ examples/
     │   ├── server/
     │   │   └── main.ts          # Cloudflare Worker setup with Actor Kit router
     │   ├── middleware.ts        # Next.js middleware for authentication
-    │   └── session.ts           # Utility for getting user ID (not shown, but mentioned)
+    │   └── session.ts           # Utility for getting user ID
     ├── package.json             # Project dependencies and scripts
     ├── wrangler.toml            # Cloudflare Workers configuration
     └── README.md                # Project documentation
