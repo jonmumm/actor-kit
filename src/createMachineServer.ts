@@ -26,6 +26,7 @@ const StorageSchema = z.object({
 
 const WebSocketAttachmentSchema = z.object({
   caller: CallerSchema,
+  lastSentChecksum: z.string().optional(),
 });
 type WebSocketAttachment = z.infer<typeof WebSocketAttachmentSchema>;
 
@@ -62,7 +63,10 @@ export const createMachineServer = <
     initialCaller: Caller | undefined;
     lastPersistedSnapshot: SnapshotFrom<TMachine> | null = null;
     lastSnapshotChecksum: string | null = null;
-    snapshotCache: Map<string, { snapshot: SnapshotFrom<TMachine>, timestamp: number }> = new Map();
+    snapshotCache: Map<
+      string,
+      { snapshot: SnapshotFrom<TMachine>; timestamp: number }
+    > = new Map();
     state: DurableObjectState;
     storage: DurableObjectStorage;
     attachments: Map<WebSocket, WebSocketAttachment>;
@@ -149,25 +153,39 @@ export const createMachineServer = <
         this.actor.subscribe(() => {
           const fullSnapshot = this.actor!.getSnapshot();
           const checksum = this.#calculateChecksum(fullSnapshot);
-          this.currentChecksum = checksum;  // Add this line
-          this.snapshotCache.set(checksum, { snapshot: fullSnapshot, timestamp: Date.now() });
+          this.currentChecksum = checksum;
+          this.snapshotCache.set(checksum, {
+            snapshot: fullSnapshot,
+            timestamp: Date.now(),
+          });
           this.#scheduleSnapshotCacheCleanup(checksum);
-          
-          let lastCallerSnapshot: CallerSnapshotFrom<TMachine> | {};
+
           this.attachments.forEach((attachment, ws) => {
-            const { caller } = attachment;
+            const { caller, lastSentChecksum } = attachment;
 
             const nextSnapshot = this.#createCallerSnapshot(
               fullSnapshot,
               caller.id
             );
 
+            let lastCallerSnapshot = {};
+            if (lastSentChecksum) {
+              const cachedData = this.snapshotCache.get(lastSentChecksum);
+              if (cachedData) {
+                lastCallerSnapshot = this.#createCallerSnapshot(
+                  cachedData.snapshot,
+                  caller.id
+                );
+              }
+            }
+
             const operations = compare(lastCallerSnapshot, nextSnapshot);
 
             if (operations.length) {
               ws.send(JSON.stringify({ operations, checksum }));
+              attachment.lastSentChecksum = checksum;
+              ws.serializeAttachment(attachment);
             }
-            lastCallerSnapshot = nextSnapshot;
           });
         });
       }
@@ -251,12 +269,17 @@ export const createMachineServer = <
         return new Response("Unauthorized", { status: 401 });
       }
 
-      this.state.acceptWebSocket(server);
-      this.attachments.set(server, { caller });
-
       // Parse the checksum from the request, if provided
       const url = new URL(request.url);
       const clientChecksum = url.searchParams.get("checksum");
+
+      this.state.acceptWebSocket(server);
+      const initialAttachment = {
+        caller,
+        lastSentChecksum: clientChecksum ?? undefined,
+      };
+      this.attachments.set(server, initialAttachment);
+      server.serializeAttachment(initialAttachment);
 
       const fullSnapshot = actor.getSnapshot();
       const currentChecksum = this.#calculateChecksum(fullSnapshot);
@@ -265,7 +288,12 @@ export const createMachineServer = <
       if (clientChecksum) {
         const cachedData = this.snapshotCache.get(clientChecksum);
         if (cachedData) {
-          lastSnapshot = this.#createCallerSnapshot(cachedData.snapshot, caller.id);
+          lastSnapshot = this.#createCallerSnapshot(
+            cachedData.snapshot,
+            caller.id
+          );
+        } else {
+          // TODO: handle "resync" scenarios where checksum isnt here, re-send the whole thing
         }
         // Schedule cleanup for this checksum
         this.#scheduleSnapshotCacheCleanup(clientChecksum);
@@ -273,11 +301,24 @@ export const createMachineServer = <
 
       // Send initial diff if necessary
       if (!clientChecksum || clientChecksum !== currentChecksum) {
-        const initialNextSnapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
+        const initialNextSnapshot = this.#createCallerSnapshot(
+          fullSnapshot,
+          caller.id
+        );
         const initialOperations = compare(lastSnapshot, initialNextSnapshot);
 
         if (initialOperations.length) {
-          server.send(JSON.stringify({ operations: initialOperations, checksum: currentChecksum }));
+          server.send(
+            JSON.stringify({
+              operations: initialOperations,
+              checksum: currentChecksum,
+            })
+          );
+          const attachment = this.attachments.get(server);
+          if (attachment) {
+            attachment.lastSentChecksum = currentChecksum;
+            server.serializeAttachment(attachment);
+          }
         }
         lastSnapshot = initialNextSnapshot;
       }
@@ -286,11 +327,19 @@ export const createMachineServer = <
         assert(actor, "actor is not running");
         const fullSnapshot = actor.getSnapshot();
         const checksum = this.#calculateChecksum(fullSnapshot);
-        const nextSnapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
+        const nextSnapshot = this.#createCallerSnapshot(
+          fullSnapshot,
+          caller.id
+        );
         const operations = compare(lastSnapshot, nextSnapshot);
 
         if (operations.length) {
           server.send(JSON.stringify({ operations, checksum }));
+          const attachment = this.attachments.get(server);
+          if (attachment) {
+            attachment.lastSentChecksum = checksum;
+            server.serializeAttachment(attachment);
+          }
         }
         // Update lastSnapshot for future comparisons
         lastSnapshot = nextSnapshot;
@@ -385,7 +434,10 @@ export const createMachineServer = <
       const fullSnapshot = this.actor.getSnapshot();
 
       const checksum = this.#calculateChecksum(fullSnapshot);
-      this.snapshotCache.set(checksum, { snapshot: fullSnapshot, timestamp: Date.now() });
+      this.snapshotCache.set(checksum, {
+        snapshot: fullSnapshot,
+        timestamp: Date.now(),
+      });
 
       // Schedule cleanup for this checksum
       this.#scheduleSnapshotCacheCleanup(checksum);
@@ -496,7 +548,8 @@ export const createMachineServer = <
         const cachedData = this.snapshotCache.get(checksum);
         if (cachedData) {
           const now = Date.now();
-          if (now - cachedData.timestamp > 300000) { // 5 minutes, same as CLEANUP_DELAY
+          if (now - cachedData.timestamp > 300000) {
+            // 5 minutes, same as CLEANUP_DELAY
             this.snapshotCache.delete(checksum);
           }
         }
