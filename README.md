@@ -392,7 +392,7 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
    ```toml
    name = "your-project-name"
    main = "src/server.ts"
-   compatibility_date = "2023-12-22"
+   compatibility_date = "2024-09-25"
 
    [vars]
    ACTOR_KIT_SECRET = "foo-bar-buzz-bar"
