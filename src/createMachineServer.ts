@@ -86,14 +86,6 @@ export const createMachineServer = <
       this.attachments = new Map();
       this.subscriptions = new Map();
 
-      // Set up WebSocket attachments
-      this.state.getWebSockets().forEach((ws) => {
-        const attachment = WebSocketAttachmentSchema.parse(
-          ws.deserializeAttachment()
-        );
-        this.attachments.set(ws, attachment);
-      });
-
       // Initialize actor data from storage
       this.state.blockConcurrencyWhile(async () => {
         const [actorType, actorId, initialCallerString, inputString] =
@@ -118,11 +110,17 @@ export const createMachineServer = <
             this.actorId = parsedData.actorId;
             this.initialCaller = parsedData.initialCaller;
             this.input = JSON.parse(inputString as string);
-            // Ensure the actor is running
-            this.#ensureActorRunning();
           } catch (error) {
             console.error("Failed to parse stored data:", error);
           }
+
+          // Ensure the actor is running
+          this.#ensureActorRunning();
+
+          // Resume all existing WebSockets
+          this.state.getWebSockets().forEach((ws) => {
+            this.subscribeSocketToActor(ws);
+          });
         }
       });
 
@@ -146,50 +144,66 @@ export const createMachineServer = <
           ...this.input,
         } as CreateMachineProps;
         this.actor = this.#createAndInitializeActor(props);
-
-        // Set up subscription to send diffs to clients
-        // We don't worry about the unsubscribe here because
-        // we know this is only run once per instance lifetime...
-        this.actor.subscribe(() => {
-          const fullSnapshot = this.actor!.getSnapshot();
-          const checksum = this.#calculateChecksum(fullSnapshot);
-          this.currentChecksum = checksum;
-          this.snapshotCache.set(checksum, {
-            snapshot: fullSnapshot,
-            timestamp: Date.now(),
-          });
-          this.#scheduleSnapshotCacheCleanup(checksum);
-
-          this.attachments.forEach((attachment, ws) => {
-            const { caller, lastSentChecksum } = attachment;
-
-            const nextSnapshot = this.#createCallerSnapshot(
-              fullSnapshot,
-              caller.id
-            );
-
-            let lastCallerSnapshot = {};
-            if (lastSentChecksum) {
-              const cachedData = this.snapshotCache.get(lastSentChecksum);
-              if (cachedData) {
-                lastCallerSnapshot = this.#createCallerSnapshot(
-                  cachedData.snapshot,
-                  caller.id
-                );
-              }
-            }
-
-            const operations = compare(lastCallerSnapshot, nextSnapshot);
-
-            if (operations.length) {
-              ws.send(JSON.stringify({ operations, checksum }));
-              attachment.lastSentChecksum = checksum;
-              ws.serializeAttachment(attachment);
-            }
-          });
-        });
       }
       return this.actor;
+    }
+
+    subscribeSocketToActor(ws: WebSocket) {
+      try {
+        const attachment = WebSocketAttachmentSchema.parse(
+          ws.deserializeAttachment()
+        );
+        this.attachments.set(ws, attachment);
+
+        // Send initial state update
+        this.#sendStateUpdate(ws);
+
+        // Set up subscription for this WebSocket
+        const sub = this.actor!.subscribe((snapshot) => {
+          this.#sendStateUpdate(ws);
+        });
+        this.subscriptions.set(ws, sub);
+      } catch (error) {
+        console.error("Failed to subscribe WebSocket to actor:", error);
+        // Optionally, handle the error (e.g., close the WebSocket)
+      }
+    }
+
+    #sendStateUpdate(ws: WebSocket) {
+      assert(this.actor, "actor is not running");
+      const attachment = this.attachments.get(ws);
+      assert(attachment, "Attachment missing for WebSocket");
+
+      const fullSnapshot = this.actor.getSnapshot();
+      const currentChecksum = this.#calculateChecksum(fullSnapshot);
+
+      // Only send updates if the checksum has changed
+      if (attachment.lastSentChecksum !== currentChecksum) {
+        const nextSnapshot = this.#createCallerSnapshot(
+          fullSnapshot,
+          attachment.caller.id
+        );
+        let lastSnapshot = {};
+        if (attachment.lastSentChecksum) {
+          const cachedData = this.snapshotCache.get(
+            attachment.lastSentChecksum
+          );
+          if (cachedData) {
+            lastSnapshot = this.#createCallerSnapshot(
+              cachedData.snapshot,
+              attachment.caller.id
+            );
+          }
+        }
+
+        const operations = compare(lastSnapshot, nextSnapshot);
+
+        if (operations.length) {
+          ws.send(JSON.stringify({ operations, checksum: currentChecksum }));
+          attachment.lastSentChecksum = currentChecksum;
+          ws.serializeAttachment(attachment);
+        }
+      }
     }
 
     /**
@@ -245,10 +259,9 @@ export const createMachineServer = <
      * Handles incoming HTTP requests and sets up WebSocket connections.
      */
     async fetch(request: Request): Promise<Response> {
-      const actor = this.actor;
+      const actor = this.#ensureActorRunning();
       assert(this.actorType, "actorType is not set");
       assert(this.actorId, "actorId is not set");
-      assert(actor, "actor is not set");
 
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
@@ -278,73 +291,10 @@ export const createMachineServer = <
         caller,
         lastSentChecksum: clientChecksum ?? undefined,
       };
-      this.attachments.set(server, initialAttachment);
       server.serializeAttachment(initialAttachment);
 
-      const fullSnapshot = actor.getSnapshot();
-      const currentChecksum = this.#calculateChecksum(fullSnapshot);
-
-      let lastSnapshot = {};
-      if (clientChecksum) {
-        const cachedData = this.snapshotCache.get(clientChecksum);
-        if (cachedData) {
-          lastSnapshot = this.#createCallerSnapshot(
-            cachedData.snapshot,
-            caller.id
-          );
-        } else {
-          // TODO: handle "resync" scenarios where checksum isnt here, re-send the whole thing
-        }
-        // Schedule cleanup for this checksum
-        this.#scheduleSnapshotCacheCleanup(clientChecksum);
-      }
-
-      // Send initial diff if necessary
-      if (!clientChecksum || clientChecksum !== currentChecksum) {
-        const initialNextSnapshot = this.#createCallerSnapshot(
-          fullSnapshot,
-          caller.id
-        );
-        const initialOperations = compare(lastSnapshot, initialNextSnapshot);
-
-        if (initialOperations.length) {
-          server.send(
-            JSON.stringify({
-              operations: initialOperations,
-              checksum: currentChecksum,
-            })
-          );
-          const attachment = this.attachments.get(server);
-          if (attachment) {
-            attachment.lastSentChecksum = currentChecksum;
-            server.serializeAttachment(attachment);
-          }
-        }
-        lastSnapshot = initialNextSnapshot;
-      }
-
-      const sub = actor.subscribe(() => {
-        assert(actor, "actor is not running");
-        const fullSnapshot = actor.getSnapshot();
-        const checksum = this.#calculateChecksum(fullSnapshot);
-        const nextSnapshot = this.#createCallerSnapshot(
-          fullSnapshot,
-          caller.id
-        );
-        const operations = compare(lastSnapshot, nextSnapshot);
-
-        if (operations.length) {
-          server.send(JSON.stringify({ operations, checksum }));
-          const attachment = this.attachments.get(server);
-          if (attachment) {
-            attachment.lastSentChecksum = checksum;
-            server.serializeAttachment(attachment);
-          }
-        }
-        // Update lastSnapshot for future comparisons
-        lastSnapshot = nextSnapshot;
-      });
-      this.subscriptions.set(server, sub);
+      // Subscribe the new WebSocket to the actor
+      this.subscribeSocketToActor(server);
 
       return new Response(null, {
         status: 101,
