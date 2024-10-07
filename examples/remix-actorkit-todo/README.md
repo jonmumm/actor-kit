@@ -23,8 +23,6 @@ examples/remix-actorkit-todo/
 │   │   └── lists.$id.tsx        # Todo list page
 │   ├── entry.client.tsx         # Client entry point
 │   ├── entry.server.tsx         # Server entry point
-│   ├── env.ts                   # Environment configuration
-│   ├── remix.server.ts          # Remix server setup
 │   ├── root.tsx                 # Root component
 │   ├── todo.components.tsx      # Todo list components
 │   ├── todo.context.tsx         # Actor Kit context for todos
@@ -66,55 +64,7 @@ export default class Worker extends WorkerEntrypoint<Env> {
 }
 ```
 
-This setup allows the Worker to route API requests to Actor Kit and all other requests to the Remix application.
-
-### 2. Todo List State Machine
-
-The todo list functionality is implemented as a state machine using XState and Actor Kit. The machine definition is in `app/todo.machine.ts`:
-
-```typescript
-export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
-  setup({
-    // ... types and actions ...
-  }).createMachine({
-    id,
-    type: "parallel",
-    context: {
-      public: {
-        ownerId: caller.id,
-        todos: [],
-        lastSync: null,
-      },
-      private: {},
-    },
-    states: {
-      Initialization: {
-        initial: "Ready",
-        states: {
-          Ready: {},
-        },
-      },
-      TodoManagement: {
-        on: {
-          ADD_TODO: {
-            actions: ["addTodo"],
-            guard: "isOwner",
-          },
-          TOGGLE_TODO: {
-            actions: ["toggleTodo"],
-            guard: "isOwner",
-          },
-          DELETE_TODO: {
-            actions: ["deleteTodo"],
-            guard: "isOwner",
-          },
-        },
-      },
-    },
-  });
-```
-
-### 3. Server-Side Integration
+### 2. Server-Side Integration
 
 The todo list page (`app/routes/lists.$id.tsx`) fetches initial state and sets up the Actor Kit context:
 
@@ -146,9 +96,25 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   });
   return json({ listId, accessToken, payload, host });
 }
+
+export default function ListPage() {
+  const { listId, accessToken, payload, host } = useLoaderData<typeof loader>();
+
+  return (
+    <TodoActorKitProvider
+      host={host}
+      actorId={listId}
+      accessToken={accessToken}
+      checksum={payload.checksum}
+      initialSnapshot={payload.snapshot}
+    >
+      <TodoList />
+    </TodoActorKitProvider>
+  );
+}
 ```
 
-### 4. Client-Side Component with Access Control
+### 3. Client-Side Component with Access Control
 
 The `TodoList` component (`app/todo.components.tsx`) demonstrates owner-based access control:
 
@@ -197,15 +163,58 @@ export function TodoList() {
    npm install
    ```
 
-3. Set up environment variables:
-   Create a `.env` file with:
+3. Configure the project:
+
+   The `wrangler.toml` file should look like this:
+
+   ```toml
+   name = "remix-actorkit-todo"
+   main = "dist/index.js"
+   compatibility_date = "2024-09-25"
+
+   legacy_assets = "public"
+
+   [define]
+   "process.env.REMIX_DEV_ORIGIN" = "'http://127.0.0.1:8002'"
+   "process.env.REMIX_DEV_SERVER_WS_PORT" = "8002"
+
+   [[durable_objects.bindings]]
+   name = "REMIX"
+   class_name = "Remix"
+
+   [[durable_objects.bindings]]
+   name = "TODO"
+   class_name = "Todo"
+
+   [[migrations]]
+   tag = "v1"
+   new_classes = ["Remix", "Todo"]
+   ```
+
+4. Set up environment variables:
+   Copy the `.dev.vars.example` file to `.dev.vars`:
+
+   ```bash
+   cp .dev.vars.example .dev.vars
+   ```
+
+   Then edit `.dev.vars` to set your environment variables:
 
    ```
    ACTOR_KIT_HOST=http://localhost:8787
    ACTOR_KIT_SECRET=your-secret-key
+   NODE_ENV=development
    ```
 
-4. Start the development server:
+   Make sure to replace `your-secret-key` with a secure secret key for your project.
+
+5. Build the project:
+
+   ```bash
+   npm run build
+   ```
+
+6. Start the development server:
 
    ```bash
    npm run dev
@@ -213,4 +222,4 @@ export function TodoList() {
 
    This command starts the Cloudflare Worker, which includes both the Remix application and Actor Kit backend.
 
-5. Open `http://localhost:8787` in your browser to view the application.
+7. Open `http://localhost:8787` in your browser to view the application.

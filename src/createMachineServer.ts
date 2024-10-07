@@ -120,25 +120,14 @@ export const createMachineServer = <
             this.input = parsedData.input;
 
             if (options?.persisted) {
-              console.debug(
-                `[${this.actorId}] Attempting to load persisted snapshot`
-              );
               const persistedSnapshot = await this.loadPersistedSnapshot();
               if (persistedSnapshot) {
-                console.debug(
-                  `[${this.actorId}] Persisted snapshot found, restoring actor`
-                );
                 this.restorePersistedActor(persistedSnapshot);
               } else {
-                console.debug(
-                  `[${this.actorId}] No persisted snapshot found, creating new actor`
-                );
                 this.#ensureActorRunning();
               }
             } else {
-              console.debug(
-                `[${this.actorId}] Persistence disabled, creating new actor`
-              );
+         
               this.#ensureActorRunning();
             }
           } catch (error) {

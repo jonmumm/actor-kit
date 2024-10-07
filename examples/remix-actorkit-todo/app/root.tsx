@@ -18,11 +18,21 @@ export const links: LinksFunction = () => [
 ];
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
-  return json({ userId: context.userId });
+  return json({
+    userId: context.userId,
+    NODE_ENV: context.env.NODE_ENV,
+  });
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { userId } = useLoaderData<typeof loader>();
+  return <UserContext.Provider value={userId}>{children}</UserContext.Provider>;
+}
+
+export default function App() {
+  const { NODE_ENV } = useLoaderData<typeof loader>();
+  const isDevelopment = NODE_ENV === "development";
+
   return (
     <html lang="en">
       <head>
@@ -32,15 +42,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
-        <UserContext.Provider value={userId}>{children}</UserContext.Provider>
+        <Layout>
+          <Outlet />
+        </Layout>
         <ScrollRestoration />
         <Scripts />
-        <LiveReload />
+        {isDevelopment && <LiveReload />}
       </body>
     </html>
   );
-}
-
-export default function App() {
-  return <Outlet />;
 }

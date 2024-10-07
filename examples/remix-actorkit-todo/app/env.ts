@@ -1,6 +1,6 @@
 import type { ActorServer } from "actor-kit";
-import type { TodoServer } from "./todo.server";
 import type { Remix } from "../server";
+import type { TodoServer } from "./todo.server";
 
 declare module "@remix-run/cloudflare" {
   interface AppLoadContext {
@@ -15,5 +15,7 @@ export interface Env {
   REMIX: DurableObjectNamespace<Remix>;
   TODO: DurableObjectNamespace<TodoServer>;
   ACTOR_KIT_SECRET: string;
+  ACTOR_KIT_HOST: string;
+  NODE_ENV: string;
   [key: string]: DurableObjectNamespace<ActorServer<any, any, any>> | unknown;
 }

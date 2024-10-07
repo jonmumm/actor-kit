@@ -9,13 +9,6 @@ legacy_assets = "public"
 [define]
 "process.env.REMIX_DEV_ORIGIN" = "'http://127.0.0.1:8002'"
 "process.env.REMIX_DEV_SERVER_WS_PORT" = "8002"
-"process.env.ACTOR_KIT_HOST" = "'127.0.0.1:8787'"
-"process.env.ACTOR_KIT_SECRET" = "'foobarbaz'"
-
-[vars]
-ACTOR_KIT_HOST = "127.0.0.1:8787"
-ACTOR_KIT_SECRET = "foobarbaz"
-DEBUG_LEVEL = "3"
 
 [[durable_objects.bindings]]
 name = "REMIX"
@@ -27,4 +20,7 @@ class_name = "Todo"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["Remix"]
+new_classes = ["Remix", "Todo"]
+
+[observability]
+enabled = true

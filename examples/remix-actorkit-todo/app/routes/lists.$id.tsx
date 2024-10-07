@@ -6,21 +6,18 @@ import { TodoActorKitProvider } from "../todo.context";
 import type { TodoMachine } from "../todo.machine";
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
-  const host = process.env.ACTOR_KIT_HOST!;
   const fetchTodoActor = createActorFetch<TodoMachine>({
     actorType: "todo",
-    host,
+    host: context.env.ACTOR_KIT_HOST,
   });
-
-  const signingKey = process.env.ACTOR_KIT_SECRET!;
 
   const listId = params.id;
   if (!listId) {
     throw new Error("listId is required");
   }
-  // const userId = await getUserId();
+
   const accessToken = await createAccessToken({
-    signingKey,
+    signingKey: context.env.ACTOR_KIT_SECRET,
     actorId: listId,
     actorType: "todo",
     callerId: context.userId,
@@ -30,7 +27,12 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
     actorId: listId,
     accessToken,
   });
-  return json({ listId, accessToken, payload, host });
+  return json({
+    listId,
+    accessToken,
+    payload,
+    host: context.env.ACTOR_KIT_HOST,
+  });
 }
 
 export default function ListPage() {

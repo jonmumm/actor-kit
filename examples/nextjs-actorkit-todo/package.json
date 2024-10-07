@@ -8,10 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "dev-server": "wrangler dev",
-    "deploy-server": "wrangler deploy"
+    "deploy-server": "NODE_ENV=production wrangler deploy"
   },
   "dependencies": {
-    "actor-kit": "^0.14.0",
+    "actor-kit": "^0.15.0",
     "cookie": "^0.6.0",
     "next": "14.2.13",
     "react": "^18",
