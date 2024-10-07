@@ -234,6 +234,12 @@ export default class Worker extends WorkerEntrypoint<Env> {
    ACTOR_KIT_SECRET=your-secret-key
    ```
 
+   or
+
+   ```bash
+   cp .env.local.example .env.local
+   ```
+
 4. Start the Cloudflare Worker development server:
 
    ```bash
