@@ -182,31 +182,6 @@ export function TodoList() {
 }
 ```
 
-### 5. Authentication and Session Management
-
-The `app/remix.server.ts` file implements JWT-based authentication and session management:
-
-```typescript
-export class Remix extends DurableObject<Env> {
-  async fetch(request: Request) {
-    // ... authentication logic ...
-
-    const response = await handleRemixRequest(request, {
-      env: this.env,
-      userId,
-      sessionId,
-      pageSessionId,
-    });
-
-    // ... set cookies ...
-
-    return response;
-  }
-
-  // ... helper methods for token management ...
-}
-```
-
 ## 🚀 Getting Started
 
 1. Clone the repository and navigate to the example directory:
