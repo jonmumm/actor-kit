@@ -72,13 +72,10 @@ The todo list page (`app/routes/lists.$id.tsx`) fetches initial state and sets u
 
 ```typescript
 export async function loader({ params, context }: LoaderFunctionArgs) {
-  const host = process.env.ACTOR_KIT_HOST!;
   const fetchTodoActor = createActorFetch<TodoMachine>({
     actorType: "todo",
-    host,
+    host: context.env.ACTOR_KIT_HOST,
   });
-
-  const signingKey = process.env.ACTOR_KIT_SECRET!;
 
   const listId = params.id;
   if (!listId) {
@@ -86,7 +83,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   }
 
   const accessToken = await createAccessToken({
-    signingKey,
+    signingKey: context.env.ACTOR_KIT_SECRET,
     actorId: listId,
     actorType: "todo",
     callerId: context.userId,
@@ -96,7 +93,12 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
     actorId: listId,
     accessToken,
   });
-  return json({ listId, accessToken, payload, host });
+  return json({
+    listId,
+    accessToken,
+    payload,
+    host: context.env.ACTOR_KIT_HOST,
+  });
 }
 
 export default function ListPage() {
@@ -194,13 +196,13 @@ export function TodoList() {
    ```
 
 4. Set up environment variables:
-   Copy the `.dev.vars.example` file to `.dev.vars`:
+   Create a `.dev.vars` file in the root of your project:
 
    ```bash
-   cp .dev.vars.example .dev.vars
+   touch .dev.vars
    ```
 
-   Then edit `.dev.vars` to set your environment variables:
+   Add the following environment variables to `.dev.vars`:
 
    ```
    ACTOR_KIT_HOST=http://localhost:8787
@@ -210,13 +212,48 @@ export function TodoList() {
 
    Make sure to replace `your-secret-key` with a secure secret key for your project.
 
-5. Build the project:
+5. Update the loader function:
+   In `app/routes/lists.$id.tsx`, update the loader function to use the environment variables:
+
+   ```typescript
+   export async function loader({ params, context }: LoaderFunctionArgs) {
+     const fetchTodoActor = createActorFetch<TodoMachine>({
+       actorType: "todo",
+       host: context.env.ACTOR_KIT_HOST,
+     });
+
+     const listId = params.id;
+     if (!listId) {
+       throw new Error("listId is required");
+     }
+
+     const accessToken = await createAccessToken({
+       signingKey: context.env.ACTOR_KIT_SECRET,
+       actorId: listId,
+       actorType: "todo",
+       callerId: context.userId,
+       callerType: "client",
+     });
+     const payload = await fetchTodoActor({
+       actorId: listId,
+       accessToken,
+     });
+     return json({
+       listId,
+       accessToken,
+       payload,
+       host: context.env.ACTOR_KIT_HOST,
+     });
+   }
+   ```
+
+6. Build the project:
 
    ```bash
    npm run build
    ```
 
-6. Start the development server:
+7. Start the development server:
 
    ```bash
    npm run dev
@@ -224,7 +261,9 @@ export function TodoList() {
 
    This command starts the Cloudflare Worker, which includes both the Remix application and Actor Kit backend.
 
-7. Open `http://localhost:8787` in your browser to view the application.
+8. Open `http://localhost:8787` in your browser to view the application.
+
+Note: The environment variables are accessed through the `context.env` object in the loader functions. This allows for secure handling of sensitive information and easy configuration between development and production environments.
 
 ## 🚀 Deployment
 
@@ -274,9 +313,3 @@ To deploy the Remix + Actor Kit Todo Example to Cloudflare Workers:
    ```bash
    npx wrangler deploy
    ```
-
-5. Verify the deployment by visiting the URL provided by Wrangler after successful deployment.
-
-Remember to never commit sensitive information like `.dev.vars` to version control. For updates to secrets, use the `wrangler secret put` command again with the same key.
-
-By following these steps, you'll have your Remix + Actor Kit Todo Example securely deployed and running on Cloudflare Workers.
