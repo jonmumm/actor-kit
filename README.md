@@ -15,10 +15,8 @@ Actor Kit is a powerful library for creating and managing actor-based state mach
   - [6️⃣ Create the Actor Kit Context](#6️⃣-create-the-actor-kit-context)
   - [7️⃣ Fetch data server-side](#7️⃣-fetch-data-server-side)
   - [8️⃣ Create a client-side component](#8️⃣-create-a-client-side-component)
-- [🚀 Examples](#-examples)
-  - [Remix Todo List Example](#remix-todo-list-example)
-  - [Next.js Todo List Example](#nextjs-todo-list-example)
 - [🚀 Getting Started](#-getting-started)
+- [🗂️ Framework Examples](#framework-examples)
 - [📖 API Reference](#-api-reference)
   - [🔧 actor-kit/worker](#-actor-kitworker)
   - [🖥️ actor-kit/server](#️-actor-kitserver)
@@ -181,16 +179,16 @@ import { createMachineServer } from "actor-kit/worker";
 import { createTodoListMachine } from "./todo.machine";
 import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
 
-export const TodoActorKitServer = createMachineServer(
-  createTodoListMachine,
-  {
+export const TodoActorKitServer = createMachineServer({
+  createMachine: createTodoListMachine,
+  eventSchemas: {
     client: TodoClientEventSchema,
     service: TodoServiceEventSchema,
   },
-  {
+  options: {
     persisted: true,
-  }
-);
+  },
+});
 ```
 
 ### 4️⃣ Configure Wrangler
@@ -198,36 +196,32 @@ export const TodoActorKitServer = createMachineServer(
 Create a `wrangler.toml` file in your project root:
 
 ```toml
-name = "todo-list-app"
-main = "src/server/worker.ts"
-compatibility_date = "2023-12-22"
+name = "nextjs-actorkit-todo"
+main = "src/server/main.ts"
+compatibility_date = "2024-09-25"
 
 [vars]
-ACTOR_KIT_SECRET = "your-secret-key"
+ACTOR_KIT_SECRET = "foobarbaz"
 
-# Durable Object bindings
 [[durable_objects.bindings]]
-name = "TodoActorKitServer"
-class_name = "TodoActorKitServer"
+name = "TODO"
+class_name = "Todo"
 
-# Durable Object migrations
 [[migrations]]
 tag = "v1"
-new_classes = ["TodoActorKitServer"]
+new_classes = ["Todo"]
 ```
 
 ### 5️⃣ Create a Cloudflare Worker with Actor Kit Router
 
-Create a new file, e.g., `src/server/worker.ts`, to set up your Cloudflare Worker:
+Create a new file, e.g., `src/server/main.ts`, to set up your Cloudflare Worker:
 
 ```typescript
-// src/server/worker.ts
+// src/server/main.ts
 import { createActorKitRouter } from "actor-kit/worker";
 import { TodoActorKitServer } from "./todo.server";
 
-const actorKitRouter = createActorKitRouter({
-  todo: TodoActorKitServer,
-});
+const actorKitRouter = createActorKitRouter(["todo"]);
 
 export default {
   async fetch(
@@ -242,7 +236,7 @@ export default {
       return actorKitRouter(request, env, ctx);
     }
 
-    // Render React, Svelte, Vue any other web framework here...
+    // Handle other routes or return a default response
     return new Response("Welcome to Actor Kit on Cloudflare Workers!");
   },
 };
@@ -251,10 +245,10 @@ export default {
 ### 6️⃣ Create the Actor Kit Context
 
 ```typescript
-// src/app/lists/[id]/context.tsx
+// src/shared/todo.context.tsx
 "use client";
 
-import type { TodoMachine } from "@/server/todo.machine";
+import type { TodoMachine } from "./todo.machine";
 import { createActorKitContext } from "actor-kit/react";
 
 export const TodoActorKitContext = createActorKitContext<TodoMachine>("todo");
@@ -265,33 +259,44 @@ export const TodoActorKitProvider = TodoActorKitContext.Provider;
 
 ```typescript
 // src/app/lists/[id]/page.tsx
-import type { TodoMachine } from "../../../server/todo.machine";
-import { createActorFetch } from "actor-kit/server";
+import { getUserId } from "@/session";
+import { createAccessToken, createActorFetch } from "actor-kit/server";
+import { TodoActorKitProvider } from "shared/todo.context";
+import type { TodoMachine } from "shared/todo.machine";
 import { TodoList } from "./components";
-import { TodoActorKitProvider } from "./context";
 
-const fetchTodoActor = createActorFetch<TodoMachine>("todo");
+const host = process.env.ACTOR_KIT_HOST!;
+const signingKey = process.env.ACTOR_KIT_SECRET!;
 
-export default async function TodoPage({ params }: { params: { id: string } }) {
-  const listId = params.id;
-  const userId = "user-123"; // Replace with actual user ID logic
+const fetchTodoActor = createActorFetch<TodoMachine>({
+  actorType: "todo",
+  host,
+});
+
+export default async function TodoPage(props: { params: { id: string } }) {
+  const listId = props.params.id;
+  const userId = await getUserId();
+
+  const accessToken = await createAccessToken({
+    signingKey,
+    actorId: listId,
+    actorType: "todo",
+    callerId: userId,
+    callerType: "client",
+  });
 
   const payload = await fetchTodoActor({
     actorId: listId,
-    callerId: userId,
-    host: process.env.ACTOR_KIT_HOST!,
-    signingKey: process.env.ACTOR_KIT_SECRET!,
+    accessToken,
   });
 
   return (
     <TodoActorKitProvider
-      options={{
-        host: process.env.ACTOR_KIT_HOST!, // Required for external access
-        actorId: listId,
-        connectionId: payload.connectionId,
-        connectionToken: payload.connectionToken,
-        initialState: payload.snapshot,
-      }}
+      host={host}
+      actorId={listId}
+      accessToken={accessToken}
+      checksum={payload.checksum}
+      initialSnapshot={payload.snapshot}
     >
       <TodoList />
     </TodoActorKitProvider>
@@ -302,11 +307,11 @@ export default async function TodoPage({ params }: { params: { id: string } }) {
 ### 8️⃣ Create a client-side component
 
 ```typescript
-// app/lists/[id]/components.tsx
+// src/app/lists/[id]/components.tsx
 "use client";
 
 import React, { useState } from "react";
-import { TodoActorKitContext } from "./context";
+import { TodoActorKitContext } from "shared/todo.context";
 
 export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
@@ -365,7 +370,7 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
 4. Configuring Wrangler for Cloudflare Workers
 5. Creating a Cloudflare Worker with Actor Kit Router
 6. Setting up the Actor Kit context
-7. Fetching data server-side
+7. Fetching data server-side with access token creation
 8. Creating a client-side component that interacts with the actor
 
 ## 🚀 Getting Started
@@ -408,7 +413,6 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
    - Ensure that `ACTOR_KIT_SECRET` is kept secure and not exposed publicly.
    - The `durable_objects.bindings` section creates a binding between your Worker and the Durable Object classes that implement your actor servers.
    - The `migrations` section is necessary to create the Durable Object classes in your Cloudflare account.
-   - Uncomment and adjust the `routes` section if you're using a custom domain.
 
 4. Create your Worker script (e.g., `src/server/worker.ts`):
 
@@ -433,7 +437,7 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
          return actorKitRouter(request, env, ctx);
        }
 
-       // Handle other routes or return a default response
+       // Handle other routes, return a default response, or set up a web rendering framework
        return new Response("Hello World!");
      },
    };
@@ -459,40 +463,18 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
 
 By following these steps, you'll have set up your Cloudflare Worker with the necessary Durable Object bindings to run your Actor Kit servers, implemented the `createActorKitRouter` to handle routing to the appropriate Durable Objects, and deployed your Worker to Cloudflare's edge network.
 
-## 🚀 Examples
+## 🗂️ Framework Examples
 
-To help you get started with Actor Kit, we've prepared two comprehensive examples using popular web frameworks:
+Actor Kit includes example todo list applications demonstrating integration with popular web frameworks.
 
-### Remix Todo List Example
+Directory structure:
 
-Explore a full-featured todo list application built with Remix and Actor Kit. This example demonstrates how to integrate Actor Kit with Remix for real-time, collaborative task management.
+- `shared/`: Contains common Actor Kit setup (machine, schemas, types) not specific to any framework
+- `examples/`:
+  - `nextjs-actorkit-todo/`: [Next.js example](/examples/nextjs-actorkit-todo/README.md)
+  - `remix-actorkit-todo/`: [Remix example](/examples/remix-actorkit-todo/README.md)
 
-**[View the Remix Todo List Example](/examples/remix-actorkit-todo)**
-
-Key features:
-- Real-time updates across multiple clients
-- Server-side rendering with Remix
-- Actor Kit integration for state management
-- TypeScript for type safety
-
-### Next.js Todo List Example
-
-Discover how to use Actor Kit with Next.js in this todo list application. This example showcases the power of Actor Kit combined with Next.js's server-side rendering and API routes.
-
-**[View the Next.js Todo List Example](/examples/nextjs-actorkit-todo)**
-
-Key features:
-- Real-time collaborative todo list
-- Next.js API routes for backend logic
-- Actor Kit for state synchronization
-- TypeScript implementation
-
-Both examples provide a practical implementation of Actor Kit, demonstrating how to:
-- Set up Actor Kit with different web frameworks
-- Define state machines for todo list management
-- Handle real-time updates and state synchronization
-- Implement server-side rendering with Actor Kit
-- Structure your project for scalability and maintainability
+Each example showcases how to structure an Actor Kit project within its respective framework, providing a practical reference for integrating Actor Kit into your applications.
 
 ## 📖 API Reference
 
@@ -631,10 +613,10 @@ Example usage:
 
 ```typescript
 const client = createActorKitClient<TodoMachine>({
-  host: "https://your-actor-kit-server.com",
+  host: "your-actor-kit-server.com",
   actorType: "todo",
   actorId: "list-123",
-  connectionId: "user-456",
+  checksum: "wf8ew9a",
   connectionToken: "your-auth-token",
   initialState: initialTodoState,
   onStateChange: (newState) => console.log("State updated:", newState),

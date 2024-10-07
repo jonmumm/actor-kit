@@ -65,7 +65,6 @@ export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
       env,
       actorType as ActorType
     );
-    console.log("env.ACTOR_KIT_SECRET", env.ACTOR_KIT_SECRET);
 
     if (!durableObjectNamespace) {
       return new Response(
@@ -95,9 +94,6 @@ export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
 
     // Create a unique key for the actor
     const actorKey = `${actorType}:${actorId}`;
-    console.log("actorKey", actorKey);
-    console.log("caller", caller);
-    console.log("url", request.url);
 
     // Check if the actor has already been spawned
     if (!spawnedActors.has(actorKey)) {

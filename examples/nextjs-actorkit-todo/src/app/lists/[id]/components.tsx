@@ -15,7 +15,6 @@ export function TodoList() {
     (state) => state.public.ownerId
   );
   const isOwner = ownerId === userId;
-  console.log({ ownerId, userId, isOwner });
 
   const handleAddTodo = (e: React.FormEvent) => {
     e.preventDefault();

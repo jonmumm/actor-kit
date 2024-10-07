@@ -92,14 +92,14 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
       props.onError?.(new Error(`WebSocket error: ${JSON.stringify(error)}`));
     });
 
+    // todo, how do we reconnect when a user returns to the tab
+    // later after it's disconnected
+
     socket.addEventListener("close", (event) => {
       // Implement reconnection logic
       if (reconnectAttempts < maxReconnectAttempts) {
         reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-        console.log(
-          `[ActorKitClient] Attempting to reconnect in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`
-        );
         setTimeout(connect, delay);
       } else {
         console.error(`[ActorKitClient] Max reconnection attempts reached`);
@@ -115,7 +115,6 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
    * Closes the WebSocket connection to the Actor Kit server.
    */
   const disconnect = () => {
-    console.log(`[ActorKitClient] Disconnecting WebSocket`);
     if (socket) {
       socket.close();
       socket = null;

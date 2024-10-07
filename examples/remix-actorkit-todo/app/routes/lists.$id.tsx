@@ -28,14 +28,6 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
     callerId: context.userId,
     callerType: "client",
   });
-  console.log("user", context.userId);
-  console.log("user", context.userId);
-  console.log("user", context.userId);
-  console.log("user", context.userId);
-  console.log("user", context.userId);
-  console.log("user", context.userId);
-  console.log("user", context.userId);
-  console.log("user", context.userId);
   const payload = await fetchTodoActor({
     actorId: listId,
     accessToken,

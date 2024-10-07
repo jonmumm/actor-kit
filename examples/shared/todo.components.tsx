@@ -10,12 +10,10 @@ export function TodoList() {
   const [newTodoText, setNewTodoText] = useState("");
 
   const userId = useContext(UserContext);
-  console.log("userId", userId);
   const ownerId = TodoActorKitContext.useSelector(
     (state) => state.public.ownerId
   );
   const isOwner = ownerId === userId;
-  console.log({ ownerId, userId, isOwner });
 
   const handleAddTodo = (e: React.FormEvent) => {
     e.preventDefault();

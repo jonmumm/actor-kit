@@ -237,7 +237,6 @@ export const createMachineServer = <
 
       let caller: Caller | undefined;
       try {
-        console.log(this.actorId, this.actorType, this.env.ACTOR_KIT_SECRET);
         caller = await getCallerFromRequest(
           request,
           this.actorType,
@@ -298,7 +297,6 @@ export const createMachineServer = <
       });
       this.subscriptions.set(server, sub);
 
-      console.log("[MachineServerImpl] WebSocket connection accepted");
       return new Response(null, {
         status: 101,
         webSocket: client,
