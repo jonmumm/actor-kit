@@ -61,7 +61,7 @@ Here's a comprehensive example of how to use Actor Kit to create a todo list app
 First, define the schemas and types for your events:
 
 ```typescript
-// src/server/todo.schemas.ts
+// src/todo.schemas.ts
 import { z } from "zod";
 
 export const TodoClientEventSchema = z.discriminatedUnion("type", [
@@ -88,7 +88,7 @@ export const TodoServiceEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-// src/server/todo.types.ts
+// src/todo.types.ts
 import type { WithActorKitEvent, ActorKitSystemEvent } from "actor-kit";
 import { z } from "zod";
 import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
@@ -107,7 +107,7 @@ export type TodoEvent =
 Now that we have our event types defined, we can create our state machine:
 
 ```typescript
-// src/server/todo.machine.ts
+// src/todo.machine.ts
 import type { CreateMachineProps } from "actor-kit";
 import { assign, setup } from "xstate";
 import type { TodoEvent } from "./todo.types";
@@ -174,7 +174,7 @@ export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
 Create the Actor Server using the `createMachineServer` function:
 
 ```typescript
-// src/server/todo.server.ts
+// src/todo.server.ts
 import { createMachineServer } from "actor-kit/worker";
 import { createTodoListMachine } from "./todo.machine";
 import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
@@ -197,7 +197,7 @@ Create a `wrangler.toml` file in your project root:
 
 ```toml
 name = "nextjs-actorkit-todo"
-main = "src/server/main.ts"
+main = "src/server.ts"
 compatibility_date = "2024-09-25"
 
 [vars]
@@ -214,10 +214,10 @@ new_classes = ["Todo"]
 
 ### 5️⃣ Create a Cloudflare Worker with Actor Kit Router
 
-Create a new file, e.g., `src/server/main.ts`, to set up your Cloudflare Worker:
+Create a new file, e.g., `src/server.ts`, to set up your Cloudflare Worker:
 
 ```typescript
-// src/server/main.ts
+// src/server.ts
 import { createActorKitRouter } from "actor-kit/worker";
 import { TodoActorKitServer } from "./todo.server";
 
@@ -245,7 +245,7 @@ export default {
 ### 6️⃣ Create the Actor Kit Context
 
 ```typescript
-// src/shared/todo.context.tsx
+// src/todo.context.tsx
 "use client";
 
 import type { TodoMachine } from "./todo.machine";
@@ -391,7 +391,7 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
 
    ```toml
    name = "your-project-name"
-   main = "src/server/worker.ts"
+   main = "src/server.ts"
    compatibility_date = "2023-12-22"
 
    [vars]
@@ -414,7 +414,7 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
    - The `durable_objects.bindings` section creates a binding between your Worker and the Durable Object classes that implement your actor servers.
    - The `migrations` section is necessary to create the Durable Object classes in your Cloudflare account.
 
-4. Create your Worker script (e.g., `src/server/worker.ts`):
+4. Create your Worker script (e.g., `src/server.ts`):
 
    ```typescript
    import { createActorKitRouter } from "actor-kit/worker";
