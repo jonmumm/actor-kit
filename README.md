@@ -17,6 +17,8 @@ Actor Kit is a powerful library for creating and managing actor-based state mach
   - [8️⃣ Create a client-side component](#8️⃣-create-a-client-side-component)
 - [🚀 Getting Started](#-getting-started)
 - [🗂️ Framework Examples](#-framework-examples)
+  - [⚛️ Next.js](/examples/nextjs-actorkit-todo/README.md)
+  - [🎸 Remix](/examples/remix-actorkit-todo/README.md)
 - [📖 API Reference](#-api-reference)
   - [🔧 actor-kit/worker](#-actor-kitworker)
   - [🖥️ actor-kit/server](#️-actor-kitserver)
