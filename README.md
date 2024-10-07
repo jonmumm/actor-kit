@@ -467,14 +467,8 @@ By following these steps, you'll have set up your Cloudflare Worker with the nec
 
 Actor Kit includes example todo list applications demonstrating integration with popular web frameworks.
 
-Directory structure:
-
-- `shared/`: Contains common Actor Kit setup (machine, schemas, types) not specific to any framework
-- `examples/`:
-  - `nextjs-actorkit-todo/`: [Next.js example](/examples/nextjs-actorkit-todo/README.md)
-  - `remix-actorkit-todo/`: [Remix example](/examples/remix-actorkit-todo/README.md)
-
-Each example showcases how to structure an Actor Kit project within its respective framework, providing a practical reference for integrating Actor Kit into your applications.
+- [Next.js example](/examples/nextjs-actorkit-todo/README.md) in `/examples/nextjs-actorkit-todo`
+- [Remix example](/examples/remix-actorkit-todo/README.md) in `/examples/remix-actorkit-todo`
 
 ## 📖 API Reference
 
