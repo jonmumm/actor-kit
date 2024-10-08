@@ -478,7 +478,7 @@ By following these steps, you'll have a basic Actor Kit setup running on Cloudfl
 Actor Kit includes example todo list applications demonstrating integration with popular web frameworks.
 
 - [Next.js example](/examples/nextjs-actorkit-todo/README.md) in `/examples/nextjs-actorkit-todo`
-  - Live demo: [https://nextjs-actor-kit-todo.vercel.app/](https://nextjs-actor-kit-todo.vercel.app/)
+  - Live demo: [https://nextjs-actorkit-todo.vercel.app/](https://nextjs-actorkit-todo.vercel.app/)
 
 - [Remix example](/examples/remix-actorkit-todo/README.md) in `/examples/remix-actorkit-todo`
   - Live demo: [https://remix-actorkit-todo.jonathanrmumm.workers.dev/](https://remix-actorkit-todo.jonathanrmumm.workers.dev/)

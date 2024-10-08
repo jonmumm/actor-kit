@@ -310,4 +310,4 @@ To deploy the API as a Cloudflare Worker:
 
    Replace `your-worker-name.your-account.workers.dev` with your actual Cloudflare Worker URL, and use the same `your-secret-key` as before.
 
-Visit the deployed application at [https://nextjs-actor-kit-todo.vercel.app/](https://nextjs-actor-kit-todo.vercel.app/)
+Visit the deployed application at [https://nextjs-actorkit-todo.vercel.app/](https://nextjs-actorkit-todo.vercel.app/)
