@@ -28,6 +28,8 @@ Actor Kit is a library for creating and managing actor-based state machines in C
 - [👥 Caller Types](#-caller-types)
 - [🔐 Public and Private Data](#-public-and-private-data)
 - [📜 License](#-license)
+- [🔗 Related Technologies and Inspiration](#-related-technologies-and-inspiration)
+- [🚧 Development Status](#-development-status)
 
 ## 💾 Installation
 
@@ -841,3 +843,8 @@ Actor Kit builds upon and draws inspiration from several excellent technologies:
 - [Cloudflare Workers](https://workers.cloudflare.com/): A serverless platform for building and deploying applications at the edge.
 - [Zod](https://zod.dev/): A TypeScript-first schema declaration and validation library.
 - [PartyKit](https://www.partykit.io/): An inspiration for Actor Kit, providing real-time multiplayer infrastructure.
+- [xstate-migrate](https://github.com/jonmumm/xstate-migrate): A migration library for persisted XState machines, designed to facilitate state machine migrations when updating your XState configurations.
+
+## 🚧 Development Status
+
+Actor Kit is currently in active development and is considered alpha software. It is not yet stable or recommended for production use. Use at your own risk and expect frequent changes.
