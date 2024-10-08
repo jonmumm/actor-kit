@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "dev-server": "wrangler dev",
-    "deploy-server": "NODE_ENV=production wrangler deploy"
+    "dev-api": "wrangler dev",
+    "deploy-api": "wrangler deploy"
   },
   "dependencies": {
     "actor-kit": "^0.15.0",

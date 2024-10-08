@@ -68,7 +68,6 @@ export interface Env {
   ACTOR_KIT_SECRET: string;
   ACTOR_KIT_HOST: string;
   NODE_ENV: string;
-  [key: string]: DurableObjectNamespace<ActorServer<any, any, any>> | unknown;
 }
 ```
 
@@ -301,9 +300,7 @@ These events are defined in the todo state machine and processed accordingly, up
    Add the following environment variables to `.dev.vars`:
 
    ```
-   ACTOR_KIT_HOST=http://localhost:8787
    ACTOR_KIT_SECRET=your-secret-key
-   NODE_ENV=development
    ```
 
    Make sure to replace `your-secret-key` with a secure secret key for your project.
@@ -365,18 +362,14 @@ Note: The environment variables are accessed through the `context.env` object in
 
 To deploy the Remix + Actor Kit Todo Example to Cloudflare Workers:
 
-1. Set up secrets for production:
+1. Set up environment variables for production:
 
    ```bash
-   npx wrangler secret put ACTOR_KIT_HOST
    npx wrangler secret put ACTOR_KIT_SECRET
-   npx wrangler secret put NODE_ENV
    ```
 
    Enter the appropriate values when prompted:
-   - `ACTOR_KIT_HOST`: Your production Worker URL (e.g., `https://your-worker-name.your-account.workers.dev`)
    - `ACTOR_KIT_SECRET`: A secure, randomly generated secret key
-   - `NODE_ENV`: Set to `production`
 
 2. Update `wrangler.toml` for production if necessary:
 
