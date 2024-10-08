@@ -18,7 +18,11 @@ Actor Kit is a powerful library for creating and managing actor-based state mach
 - [🚀 Getting Started](#-getting-started)
 - [🗂️ Framework Examples](#️-framework-examples)
   - [⚛️ Next.js](/examples/nextjs-actorkit-todo/README.md)
+    - Live demo: [https://nextjs-actor-kit-todo.vercel.app/](https://nextjs-actor-kit-todo.vercel.app/)
+
   - [🎸 Remix](/examples/remix-actorkit-todo/README.md)
+    - Live demo: [https://remix-actorkit-todo.jonathanrmumm.workers.dev/](https://remix-actorkit-todo.jonathanrmumm.workers.dev/)
+
 - [📖 API Reference](#-api-reference)
   - [🔧 actor-kit/worker](#-actor-kitworker)
   - [🖥️ actor-kit/server](#️-actor-kitserver)
@@ -390,8 +394,29 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
 
 2. Set up environment variables:
 
-   - `ACTOR_KIT_SECRET`: Secret key for Actor Kit (required by Actor Kit to verify incoming requests and by external services to sign outgoing requests)
-   - `ACTOR_KIT_HOST`: The host for your Actor Kit server (only required for external access, e.g., from a Next.js server)
+   For development:
+   Create a `.dev.vars` file in your project root:
+
+   ```bash
+   touch .dev.vars
+   ```
+
+   Add the following to `.dev.vars`:
+
+   ```
+   ACTOR_KIT_SECRET=your-secret-key
+   ```
+
+   Replace `your-secret-key` with a secure, randomly generated secret.
+
+   For production:
+   Set up the secret using Wrangler:
+
+   ```bash
+   npx wrangler secret put ACTOR_KIT_SECRET
+   ```
+
+   Enter the same secret key you used in your `.dev.vars` file.
 
 3. Create a `wrangler.toml` file in your project root:
 
@@ -400,50 +425,35 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
    main = "src/server.ts"
    compatibility_date = "2024-09-25"
 
-   [vars]
-   ACTOR_KIT_SECRET = "foo-bar-buzz-bar"
-
-   # Durable Object bindings
    [[durable_objects.bindings]]
-   name = "TodoActorKitServer"
-   class_name = "TodoActorKitServer"
+   name = "YOUR_ACTOR"
+   class_name = "YourActor"
 
-   # Durable Object migrations
    [[migrations]]
    tag = "v1"
-   new_classes = ["TodoActorKitServer"]
+   new_classes = ["YourActor"]
    ```
 
-   Notes:
-
-   - Ensure that `ACTOR_KIT_SECRET` is kept secure and not exposed publicly.
-   - The `durable_objects.bindings` section creates a binding between your Worker and the Durable Object classes that implement your actor servers.
-   - The `migrations` section is necessary to create the Durable Object classes in your Cloudflare account.
+   Replace `your-project-name` with your project's name, and `YOUR_ACTOR` and `YourActor` with your specific actor names.
 
 4. Create your Worker script (e.g., `src/server.ts`):
 
    ```typescript
    import { createActorKitRouter } from "actor-kit/worker";
-   import { TodoActorKitServer } from "./todo.server";
+   import { YourActor } from "./your-actor.server";
 
    const actorKitRouter = createActorKitRouter({
-     todo: TodoActorKitServer,
+     yourActor: YourActor,
    });
 
    export default {
-     async fetch(
-       request: Request,
-       env: Env,
-       ctx: ExecutionContext
-     ): Promise<Response> {
+     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
        const url = new URL(request.url);
 
-       // Handle Actor Kit routes
        if (url.pathname.startsWith("/api/")) {
          return actorKitRouter(request, env, ctx);
        }
 
-       // Handle other routes, return a default response, or set up a web rendering framework
        return new Response("Hello World!");
      },
    };
@@ -461,20 +471,21 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
    npx wrangler deploy
    ```
 
-7. If you're using Next.js or another external server, set up your `ACTOR_KIT_HOST` environment variable to point to your deployed Worker's URL, then run your development server:
+7. If you're using Next.js or another external server, set up your `ACTOR_KIT_HOST` environment variable to point to your deployed Worker's URL.
 
-   ```bash
-   npm run dev
-   ```
-
-By following these steps, you'll have set up your Cloudflare Worker with the necessary Durable Object bindings to run your Actor Kit servers, implemented the `createActorKitRouter` to handle routing to the appropriate Durable Objects, and deployed your Worker to Cloudflare's edge network.
+By following these steps, you'll have a basic Actor Kit setup running on Cloudflare Workers. For more detailed, framework-specific instructions, please refer to our example projects for [Next.js](/examples/nextjs-actorkit-todo/README.md) and [Remix](/examples/remix-actorkit-todo/README.md).
 
 ## 🗂️ Framework Examples
 
 Actor Kit includes example todo list applications demonstrating integration with popular web frameworks.
 
 - [Next.js example](/examples/nextjs-actorkit-todo/README.md) in `/examples/nextjs-actorkit-todo`
+  - Live demo: [https://nextjs-actor-kit-todo.vercel.app/](https://nextjs-actor-kit-todo.vercel.app/)
+
 - [Remix example](/examples/remix-actorkit-todo/README.md) in `/examples/remix-actorkit-todo`
+  - Live demo: [https://remix-actorkit-todo.jonathanrmumm.workers.dev/](https://remix-actorkit-todo.jonathanrmumm.workers.dev/)
+
+These examples showcase how to integrate Actor Kit with different frameworks, demonstrating real-time, event-driven todo lists with owner-based access control. Visit the live demos to see Actor Kit in action!
 
 ## 📖 API Reference
 
