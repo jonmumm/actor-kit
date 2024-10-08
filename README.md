@@ -445,7 +445,11 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
    });
 
    export default {
-     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+     async fetch(
+       request: Request,
+       env: Env,
+       ctx: ExecutionContext
+     ): Promise<Response> {
        const url = new URL(request.url);
 
        if (url.pathname.startsWith("/api/")) {
@@ -478,6 +482,7 @@ By following these steps, you'll have a basic Actor Kit setup running on Cloudfl
 Actor Kit includes example todo list applications demonstrating integration with popular web frameworks.
 
 - [Next.js example](/examples/nextjs-actorkit-todo/README.md) in `/examples/nextjs-actorkit-todo`
+
   - Live demo: [https://nextjs-actorkit-todo.vercel.app/](https://nextjs-actorkit-todo.vercel.app/)
 
 - [Remix example](/examples/remix-actorkit-todo/README.md) in `/examples/remix-actorkit-todo`
@@ -498,6 +503,7 @@ Creates an actor server to run on a Cloudflare Worker.
 - `Env`: Type parameter extending `{ ACTOR_KIT_SECRET: string }`
 
 Parameters:
+
 - `createMachine`: Function that creates the state machine. It receives the following props:
   ```typescript
   {
@@ -516,18 +522,23 @@ Returns a class that extends `DurableObject` and implements `ActorServer<TMachin
 Example usage:
 
 ```typescript
-import { createMachineServer } from 'actor-kit/worker';
-import { z } from 'zod';
+import { createMachineServer } from "actor-kit/worker";
+import { z } from "zod";
 
 const TodoServer = createMachineServer({
   createMachine: ({ id, caller }) => createTodoMachine({ id, caller }),
   eventSchemas: {
-    client: z.discriminatedUnion('type', [
-      z.object({ type: z.literal('ADD_TODO'), text: z.string() }),
-      z.object({ type: z.literal('TOGGLE_TODO'), id: z.string() }),
+    client: z.discriminatedUnion("type", [
+      z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
+      z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
     ]),
-    service: z.discriminatedUnion('type', [
-      z.object({ type: z.literal('SYNC_TODOS'), todos: z.array(z.object({ id: z.string(), text: z.string(), completed: z.boolean() })) }),
+    service: z.discriminatedUnion("type", [
+      z.object({
+        type: z.literal("SYNC_TODOS"),
+        todos: z.array(
+          z.object({ id: z.string(), text: z.string(), completed: z.boolean() })
+        ),
+      }),
     ]),
   },
   options: { persisted: true },
@@ -538,7 +549,7 @@ const TodoServer = createMachineServer({
 
 Creates a router for handling Actor Kit requests in a Cloudflare Worker.
 
-- `Env`: Type parameter extending `EnvWithDurableObjects`
+- `Env: Type parameter extending `EnvWithDurableObjects`
 - `routes`: An array of actor types (as kebab-case strings)
 
 Returns a function `(request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>` that handles Actor Kit routing.
@@ -546,12 +557,16 @@ Returns a function `(request: Request, env: Env, ctx: ExecutionContext) => Promi
 Example usage:
 
 ```typescript
-import { createActorKitRouter } from 'actor-kit/worker';
+import { createActorKitRouter } from "actor-kit/worker";
 
-const actorKitRouter = createActorKitRouter(['todo', 'chat']);
+const actorKitRouter = createActorKitRouter(["todo", "chat"]);
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<Response> {
     return actorKitRouter(request, env, ctx);
   },
 };
@@ -568,33 +583,38 @@ Creates a function for fetching actor data. Used in a trusted server environment
 - `host`: The host URL for the Actor Kit server
 
 Returns a function with the following signature:
+
 ```typescript
-(props: {
-  actorId: string;
-  accessToken: string;
-  input?: Record<string, unknown>;
-  waitFor?: string;
-}, options?: RequestInit) => Promise<{
-  snapshot: CallerSnapshotFrom<TMachine>;
-  checksum: string;
-}>
+(
+  props: {
+    actorId: string;
+    accessToken: string;
+    input?: Record<string, unknown>;
+    waitFor?: string;
+  },
+  options?: RequestInit
+) =>
+  Promise<{
+    snapshot: CallerSnapshotFrom<TMachine>;
+    checksum: string;
+  }>;
 ```
 
 Example usage:
 
 ```typescript
-import { createActorFetch } from 'actor-kit/server';
-import type { TodoMachine } from './todo.machine';
+import { createActorFetch } from "actor-kit/server";
+import type { TodoMachine } from "./todo.machine";
 
 const fetchTodoActor = createActorFetch<TodoMachine>({
-  actorType: 'todo',
-  host: 'your-worker.workers.dev',
+  actorType: "todo",
+  host: "your-worker.workers.dev",
 });
 
 const { snapshot, checksum } = await fetchTodoActor({
-  actorId: 'todo-123',
-  accessToken: 'your-access-token',
-  waitFor: 'TODOS_LOADED',
+  actorId: "todo-123",
+  accessToken: "your-access-token",
+  waitFor: "TODOS_LOADED",
 });
 ```
 
@@ -603,6 +623,7 @@ const { snapshot, checksum } = await fetchTodoActor({
 Creates an access token for authenticating with an actor.
 
 Parameters:
+
 - `signingKey`: String used to sign the token
 - `actorId`: Unique identifier for the actor
 - `actorType`: Type of the actor
@@ -614,14 +635,14 @@ Returns a Promise that resolves to a JWT token string.
 Example usage:
 
 ```typescript
-import { createAccessToken } from 'actor-kit/server';
+import { createAccessToken } from "actor-kit/server";
 
 const accessToken = await createAccessToken({
   signingKey: process.env.ACTOR_KIT_SECRET!,
-  actorId: 'todo-123',
-  actorType: 'todo',
-  callerId: 'user-456',
-  callerType: 'client',
+  actorId: "todo-123",
+  actorType: "todo",
+  callerId: "user-456",
+  callerType: "client",
 });
 ```
 
@@ -634,6 +655,7 @@ Creates an Actor Kit client for managing state and communication with the server
 - `TMachine`: Type parameter extending `ActorKitStateMachine`
 
 `ActorKitClientProps<TMachine>` includes:
+
 - `host`: String
 - `actorType`: String
 - `actorId`: String
@@ -646,24 +668,24 @@ Returns an `ActorKitClient<TMachine>` object with methods to interact with the a
 Example usage:
 
 ```typescript
-import { createActorKitClient } from 'actor-kit/browser';
-import type { TodoMachine } from './todo.machine';
+import { createActorKitClient } from "actor-kit/browser";
+import type { TodoMachine } from "./todo.machine";
 
 const client = createActorKitClient<TodoMachine>({
-  host: 'your-worker.workers.dev',
-  actorType: 'todo',
-  actorId: 'todo-123',
-  checksum: 'initial-checksum',
-  accessToken: 'your-access-token',
+  host: "your-worker.workers.dev",
+  actorType: "todo",
+  actorId: "todo-123",
+  checksum: "initial-checksum",
+  accessToken: "your-access-token",
   initialSnapshot: {
     public: { todos: [] },
     private: {},
-    value: 'idle',
+    value: "idle",
   },
 });
 
 await client.connect();
-client.send({ type: 'ADD_TODO', text: 'Buy milk' });
+client.send({ type: "ADD_TODO", text: "Buy milk" });
 ```
 
 ### ⚛️ `actor-kit/react`
@@ -676,6 +698,7 @@ Creates a React context and associated hooks for integrating Actor Kit into a Re
 - `actorType`: String identifier for the actor type
 
 Returns an object with:
+
 - `Provider`: React component to provide the Actor Kit client to its children
 - `useClient()`: Hook to access the Actor Kit client directly
 - `useSelector<T>(selector: (snapshot: CallerSnapshotFrom<TMachine>) => T)`: Hook to select and subscribe to specific parts of the state
@@ -684,10 +707,10 @@ Returns an object with:
 Example usage:
 
 ```tsx
-import { createActorKitContext } from 'actor-kit/react';
-import type { TodoMachine } from './todo.machine';
+import { createActorKitContext } from "actor-kit/react";
+import type { TodoMachine } from "./todo.machine";
 
-const TodoActorKitContext = createActorKitContext<TodoMachine>('todo');
+const TodoActorKitContext = createActorKitContext<TodoMachine>("todo");
 
 function App() {
   return (
@@ -699,7 +722,7 @@ function App() {
       initialSnapshot={{
         public: { todos: [] },
         private: {},
-        value: 'idle',
+        value: "idle",
       }}
     >
       <TodoList />
@@ -708,15 +731,15 @@ function App() {
 }
 
 function TodoList() {
-  const todos = TodoActorKitContext.useSelector(state => state.public.todos);
+  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
   const send = TodoActorKitContext.useSend();
 
   return (
     <ul>
-      {todos.map(todo => (
+      {todos.map((todo) => (
         <li key={todo.id}>
           {todo.text}
-          <button onClick={() => send({ type: 'TOGGLE_TODO', id: todo.id })}>
+          <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
             Toggle
           </button>
         </li>
@@ -724,6 +747,58 @@ function TodoList() {
     </ul>
   );
 }
+```
+
+### System Events
+
+Actor Kit includes several system events that are automatically handled by the state machine. These events are of type `ActorKitSystemEvent` and include:
+
+- `INITIALIZE`: Fired when an actor is first created.
+- `CONNECT`: Fired when a client connects to the actor.
+- `DISCONNECT`: Fired when a client disconnects from the actor.
+- `RESUME`: Fired when an actor is resumed.
+- `MIGRATE`: Fired when an actor needs to migrate its state, including an operations array.
+
+The `ActorKitSystemEvent` type is defined as follows:
+
+```typescript
+export type ActorKitSystemEvent = 
+  | { type: "INITIALIZE"; caller: { type: "system" id: string } }
+  | { type: "CONNECT"; caller: { type: "system"; id: string }; clientId: string }
+  | { type: "DISCONNECT"; caller: { type: "system"; id: string }; clientId: string }
+  | { type: "RESUME"; caller: { type: "system"; id: string } }
+  | { type: "MIGRATE"; caller: { type: "system"; id: string }; operations: any[] };
+```
+
+These events can be handled in your state machine definition:
+
+```typescript
+createMachine({
+  // ... other configuration ...
+  states: {
+    idle: {
+      on: {
+        INITIALIZE: {
+          actions: "initializeActor",
+        },
+        CONNECT: {
+          actions: "handleClientConnection",
+        },
+        DISCONNECT: {
+          actions: "handleClientDisconnection",
+        },
+        RESUME: {
+          actions: "handleActorResume",
+        },
+        MIGRATE: {
+          actions: "handleActorMigration",
+        },
+        // ... other transitions ...
+      },
+    },
+    // ... other states ...
+  },
+});
 ```
 
 ## 👥 Caller Types

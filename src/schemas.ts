@@ -44,9 +44,29 @@ export const BaseEventSchema = AnyEventSchema.extend({
 });
 
 export const SystemEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("INITIALIZE") }),
-  z.object({ type: z.literal("RESUME") }),
-  // Add other system event types as needed
+  z.object({ 
+    type: z.literal("INITIALIZE"),
+    caller: z.object({ type: z.literal("system"), id: z.string() })
+  }),
+  z.object({ 
+    type: z.literal("CONNECT"),
+    caller: z.object({ type: z.literal("system"), id: z.string() }),
+    connectingCaller: CallerSchema
+  }),
+  z.object({ 
+    type: z.literal("DISCONNECT"),
+    caller: z.object({ type: z.literal("system"), id: z.string() }),
+    disconnectingCaller: CallerSchema
+  }),
+  z.object({ 
+    type: z.literal("RESUME"),
+    caller: z.object({ type: z.literal("system"), id: z.string() })
+  }),
+  z.object({ 
+    type: z.literal("MIGRATE"),
+    caller: z.object({ type: z.literal("system"), id: z.string() }),
+    operations: z.array(z.any())
+  }),
 ]);
 
 export const CallerIdTypeSchema = z.enum(["client", "service", "system"]);

@@ -1,10 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type {
-  AnyEventObject,
-  AnyStateMachine,
-  SnapshotFrom,
-  StateMachine,
-} from "xstate";
+import type { AnyStateMachine, SnapshotFrom, StateMachine } from "xstate";
 import type { z } from "zod";
 import type {
   AnyEventSchema,
@@ -71,11 +66,6 @@ export type EventWithCaller = {
   [key: string]: unknown;
 };
 
-type ActorKitEvent =
-  | WithActorKitEvent<AnyEventObject, "client">
-  | WithActorKitEvent<AnyEventObject, "service">
-  | ActorKitSystemEvent;
-
 export type ActorKitStateMachine = StateMachine<
   {
     public: any;
@@ -114,9 +104,7 @@ export interface BaseActorKitEvent {
   // cf?: CloudFlareProps;
 }
 
-export type ActorKitSystemEvent = z.infer<typeof SystemEventSchema> & {
-  caller: { type: "system" };
-};
+export type ActorKitSystemEvent = z.infer<typeof SystemEventSchema>;
 
 // Utility type to merge custom event types with the base event
 export type WithActorKitEvent<
