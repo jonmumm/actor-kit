@@ -1,6 +1,6 @@
 # 🎭 Actor Kit
 
-Actor Kit is a library for creating and managing event-drive state machines in Cloudflare Workers, leveraging XState for robust state management. It provides a framework for managing the logic, lifecycle, persistence, synchronization, and access control of actors in a distributed environment.
+Actor Kit is a library for running state machines in Cloudflare Workers, leveraging XState for robust state management. It provides a framework for managing the logic, lifecycle, persistence, synchronization, and access control of actors in a distributed environment.
 
 ## 📚 Table of Contents
 
