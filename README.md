@@ -454,7 +454,7 @@ This example demonstrates how to set up and use Actor Kit in a Next.js applicati
          return actorKitRouter(request, env, ctx);
        }
 
-       return new Response("Hello World!");
+       return new Response("Server powered by ActorKit");
      },
    };
    ```
