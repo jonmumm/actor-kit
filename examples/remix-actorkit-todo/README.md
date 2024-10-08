@@ -118,9 +118,9 @@ export default function ListPage() {
 }
 ```
 
-### 3. Client-Side Component with Access Control
+### 3. Client-Side Component
 
-The `TodoList` component (`app/todo.components.tsx`) demonstrates owner-based access control:
+The `TodoList` component (`app/todo.components.tsx`) demonstrates an example of access control and how to use the `send` function to dispatch events:
 
 ```typescript
 export function TodoList() {
@@ -134,7 +134,21 @@ export function TodoList() {
   );
   const isOwner = ownerId === userId;
 
-  // ... component logic ...
+  const handleAddTodo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newTodoText.trim()) {
+      send({ type: "ADD_TODO", text: newTodoText.trim() });
+      setNewTodoText("");
+    }
+  };
+
+  const handleToggleTodo = (id: string) => {
+    send({ type: "TOGGLE_TODO", id });
+  };
+
+  const handleDeleteTodo = (id: string) => {
+    send({ type: "DELETE_TODO", id });
+  };
 
   return (
     <div>
@@ -145,12 +159,34 @@ export function TodoList() {
         </form>
       )}
       <ul>
-        {/* Todo list items */}
+        {todos.map((todo) => (
+          <li key={todo.id}>
+            <span>{todo.text}</span>
+            <button onClick={() => handleToggleTodo(todo.id)}>
+              {todo.completed ? "Undo" : "Complete"}
+            </button>
+            <button onClick={() => handleDeleteTodo(todo.id)}>
+              Delete
+            </button>
+          </li>
+        ))}
       </ul>
     </div>
   );
 }
 ```
+
+In this component:
+
+1. We use `TodoActorKitContext.useSend()` to get the `send` function, which allows us to dispatch events to the Actor Kit state machine.
+
+2. The `handleAddTodo` function demonstrates how to send an `ADD_TODO` event with a payload containing the new todo text.
+
+3. The `handleToggleTodo` function shows how to send a `TOGGLE_TODO` event with the todo's id.
+
+4. The `handleDeleteTodo` function illustrates sending a `DELETE_TODO` event with the todo's id.
+
+These events are defined in the todo state machine and processed accordingly, updating the state and triggering real-time updates across all connected clients.
 
 ## 🚀 Getting Started
 
