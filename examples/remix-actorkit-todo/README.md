@@ -32,7 +32,8 @@ examples/remix-actorkit-todo/
 │   ├── todo.schemas.ts          # Zod schemas for todo events
 │   ├── todo.server.ts           # Todo server setup
 │   ├── todo.types.ts            # TypeScript types for todos
-│   └── user.context.tsx         # User context
+│   ├── user.context.tsx         # User context
+│   └── env.ts                   # Environment type definitions
 ├── server.ts                    # Main server file
 ├── package.json                 # Project dependencies and scripts
 ├── remix.config.js              # Remix configuration
@@ -43,7 +44,66 @@ examples/remix-actorkit-todo/
 
 ## 🛠️ How It Works
 
-### 1. Unified Worker Setup
+### 1. Environment Setup
+
+The `app/env.ts` file defines the structure of the environment variables and extends the Remix `AppLoadContext`:
+
+```typescript
+import type { ActorServer } from "actor-kit";
+import type { Remix } from "../server";
+import type { TodoServer } from "./todo.server";
+
+declare module "@remix-run/cloudflare" {
+  interface AppLoadContext {
+    env: Env;
+    userId: string;
+    sessionId: string;
+    pageSessionId: string;
+  }
+}
+
+export interface Env {
+  REMIX: DurableObjectNamespace<Remix>;
+  TODO: DurableObjectNamespace<TodoServer>;
+  ACTOR_KIT_SECRET: string;
+  ACTOR_KIT_HOST: string;
+  NODE_ENV: string;
+  [key: string]: DurableObjectNamespace<ActorServer<any, any, any>> | unknown;
+}
+```
+
+This setup ensures type safety when accessing environment variables and context throughout the application.
+
+### 2. Todo Server Setup
+
+The `app/todo.server.ts` file creates the Todo server using Actor Kit:
+
+```typescript
+import { createMachineServer } from "actor-kit/worker";
+import { createTodoListMachine } from "./todo.machine";
+import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+
+export const Todo = createMachineServer({
+  createMachine: createTodoListMachine,
+  eventSchemas: {
+    client: TodoClientEventSchema,
+    service: TodoServiceEventSchema,
+  },
+  options: {
+    persisted: true,
+  },
+});
+
+export type TodoServer = InstanceType<typeof Todo>;
+export default Todo;
+```
+
+This setup:
+- Creates a machine server for the Todo list
+- Defines client and service event schemas
+- Enables persistence for the Todo state
+
+### 3. Unified Worker Setup
 
 The `server.ts` file sets up a single Cloudflare Worker that handles both Remix requests and Actor Kit API calls:
 
@@ -66,7 +126,7 @@ export default class Worker extends WorkerEntrypoint<Env> {
 }
 ```
 
-### 2. Server-Side Integration
+### 4. Server-Side Integration
 
 The todo list page (`app/routes/lists.$id.tsx`) fetches initial state and sets up the Actor Kit context:
 
@@ -118,7 +178,7 @@ export default function ListPage() {
 }
 ```
 
-### 3. Client-Side Component
+### 5. Client-Side Component
 
 The `TodoList` component (`app/todo.components.tsx`) demonstrates an example of access control and how to use the `send` function to dispatch events:
 
