@@ -98,6 +98,7 @@ export default Todo;
 ```
 
 This setup:
+
 - Creates a machine server for the Todo list
 - Defines client and service event schemas
 - Enables persistence for the Todo state
@@ -212,11 +213,7 @@ export function TodoList() {
   return (
     <div>
       <h1>Todo List</h1>
-      {isOwner && (
-        <form onSubmit={handleAddTodo}>
-          {/* Add todo form */}
-        </form>
-      )}
+      {isOwner && <form onSubmit={handleAddTodo}>{/* Add todo form */}</form>}
       <ul>
         {todos.map((todo) => (
           <li key={todo.id}>
@@ -224,9 +221,7 @@ export function TodoList() {
             <button onClick={() => handleToggleTodo(todo.id)}>
               {todo.completed ? "Undo" : "Complete"}
             </button>
-            <button onClick={() => handleDeleteTodo(todo.id)}>
-              Delete
-            </button>
+            <button onClick={() => handleDeleteTodo(todo.id)}>Delete</button>
           </li>
         ))}
       </ul>
@@ -271,7 +266,7 @@ These events are defined in the todo state machine and processed accordingly, up
    main = "dist/index.js"
    compatibility_date = "2024-09-25"
 
-   legacy_assets = "public"
+   assets = { directory = "./public" }
 
    [define]
    "process.env.REMIX_DEV_ORIGIN" = "'http://127.0.0.1:8002'"
@@ -369,6 +364,7 @@ To deploy the Remix + Actor Kit Todo Example to Cloudflare Workers:
    ```
 
    Enter the appropriate values when prompted:
+
    - `ACTOR_KIT_SECRET`: A secure, randomly generated secret key
 
 2. Update `wrangler.toml` for production if necessary:
