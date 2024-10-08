@@ -4,7 +4,7 @@ name = "remix-actorkit-todo"
 main = "dist/index.js"
 compatibility_date = "2024-09-25"
 
-legacy_assets = "public"
+assets = { directory = "./public" }
 
 [define]
 "process.env.REMIX_DEV_ORIGIN" = "'http://127.0.0.1:8002'"
