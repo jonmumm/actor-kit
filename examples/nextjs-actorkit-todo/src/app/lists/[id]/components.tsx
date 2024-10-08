@@ -1,9 +1,9 @@
 // app/todo/[id]/TodoList.tsx
 "use client";
 
-import { UserContext } from "@/app/user-context";
 import React, { useContext, useState } from "react";
 import { TodoActorKitContext } from "../../../todo.context";
+import { UserContext } from "../../../user.context";
 
 export function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
@@ -38,6 +38,15 @@ export function TodoList() {
           <button type="submit">Add</button>
         </form>
       )}
+      {isOwner && (
+        <p>
+          <em>
+            Note: Try opening this page in incognito mode. You won&apos;t be
+            able to make edits to this list since you won&apos;t be the owner,
+            but you should see edits synced in real-time.
+          </em>
+        </p>
+      )}
       <ul>
         {todos.map((todo) => (
           <li key={todo.id}>
@@ -48,12 +57,20 @@ export function TodoList() {
             >
               {todo.text}
             </span>
-            <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
-              {todo.completed ? "Undo" : "Complete"}
-            </button>
-            <button onClick={() => send({ type: "DELETE_TODO", id: todo.id })}>
-              Delete
-            </button>
+            {isOwner && (
+              <>
+                <button
+                  onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}
+                >
+                  {todo.completed ? "Undo" : "Complete"}
+                </button>
+                <button
+                  onClick={() => send({ type: "DELETE_TODO", id: todo.id })}
+                >
+                  Delete
+                </button>
+              </>
+            )}
           </li>
         ))}
       </ul>
