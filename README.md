@@ -832,3 +832,12 @@ Actor Kit supports the concepts of public and private data in the context. This 
 ## 📜 License
 
 Actor Kit is [MIT licensed](LICENSE.md).
+
+## 🔗 Related Technologies and Inspiration
+
+Actor Kit builds upon and draws inspiration from several excellent technologies:
+
+- [XState](https://xstate.js.org/): A powerful state management library for JavaScript and TypeScript applications.
+- [Cloudflare Workers](https://workers.cloudflare.com/): A serverless platform for building and deploying applications at the edge.
+- [Zod](https://zod.dev/): A TypeScript-first schema declaration and validation library.
+- [PartyKit](https://www.partykit.io/): An inspiration for Actor Kit, providing real-time multiplayer infrastructure.
