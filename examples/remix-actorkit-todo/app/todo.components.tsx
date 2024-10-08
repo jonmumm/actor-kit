@@ -37,6 +37,9 @@ export function TodoList() {
           <button type="submit">Add</button>
         </form>
       )}
+      {isOwner && (
+        <p><em>Note: Try opening this page in incognito mode. You won&apos;t be able to make edits to this list since you won&apos;t be the owner.</em></p>
+      )}
       <ul>
         {todos.map((todo) => (
           <li key={todo.id}>
