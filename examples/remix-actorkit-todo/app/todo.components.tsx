@@ -47,12 +47,16 @@ export function TodoList() {
             >
               {todo.text}
             </span>
-            <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
-              {todo.completed ? "Undo" : "Complete"}
-            </button>
-            <button onClick={() => send({ type: "DELETE_TODO", id: todo.id })}>
-              Delete
-            </button>
+            {isOwner && (
+              <>
+                <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+                  {todo.completed ? "Undo" : "Complete"}
+                </button>
+                <button onClick={() => send({ type: "DELETE_TODO", id: todo.id })}>
+                  Delete
+                </button>
+              </>
+            )}
           </li>
         ))}
       </ul>
