@@ -1,7 +1,14 @@
 // Import necessary dependencies and types
 import { DurableObject } from "cloudflare:workers";
 import { compare } from "fast-json-patch";
-import { Actor, createActor, SnapshotFrom, Subscription } from "xstate";
+import type { StateValueFrom } from "xstate";
+import {
+  Actor,
+  createActor,
+  matchesState,
+  SnapshotFrom,
+  Subscription,
+} from "xstate";
 import { z } from "zod";
 import { PERSISTED_SNAPSHOT_KEY } from "./constants";
 import { CallerSchema } from "./schemas";
@@ -16,11 +23,7 @@ import {
   MachineServerOptions,
   ServiceEventFrom,
 } from "./types";
-import {
-  applyMigrations,
-  assert,
-  getCallerFromRequest,
-} from "./utils";
+import { applyMigrations, assert, getCallerFromRequest } from "./utils";
 
 // Define schemas for storage and WebSocket attachments
 const StorageSchema = z.object({
@@ -101,7 +104,9 @@ export const createMachineServer = <
             this.storage.get("initialCaller"),
             this.storage.get("input"),
           ]);
-        console.debug(`[${this.actorId}] Attempting to load actor data from storage`);
+        console.debug(
+          `[${this.actorId}] Attempting to load actor data from storage`
+        );
 
         if (actorType && actorId && initialCallerString && inputString) {
           try {
@@ -127,7 +132,6 @@ export const createMachineServer = <
                 this.#ensureActorRunning();
               }
             } else {
-         
               this.#ensureActorRunning();
             }
           } catch (error) {
@@ -413,24 +417,81 @@ export const createMachineServer = <
      * @param caller The caller requesting the snapshot.
      * @returns An object containing the caller-specific snapshot and a checksum for the full snapshot.
      */
-    getSnapshot(caller: Caller) {
-      assert(this.actor, "Actor is not running");
-      const fullSnapshot = this.actor.getSnapshot();
+    async getSnapshot(
+      caller: Caller,
+      options?: {
+        waitForEvent?: ClientEventFrom<TMachine>;
+        waitForState?: StateValueFrom<TMachine>;
+        timeout?: number;
+        errorOnWaitTimeout?: boolean;
+      }
+    ): Promise<{
+      checksum: string;
+      snapshot: CallerSnapshotFrom<TMachine>;
+    }> {
+      this.#ensureActorRunning();
 
+      if (options?.waitForEvent || options?.waitForState) {
+        const timeoutPromise = new Promise((resolve, reject) => {
+          setTimeout(() => {
+            if (options.errorOnWaitTimeout !== false) {
+              reject(new Error("Timeout waiting for event or state"));
+            } else {
+              resolve(this.#getCurrentSnapshot(caller));
+            }
+          }, options.timeout || 5000);
+        });
+
+        const waitPromise: Promise<{
+          checksum: string;
+          snapshot: CallerSnapshotFrom<TMachine>;
+        }> = new Promise((resolve) => {
+          const sub = this.actor!.subscribe((state) => {
+            if (
+              (options.waitForEvent &&
+                this.#matchesEvent(state, options.waitForEvent)) ||
+              (options.waitForState &&
+                this.#matchesState(state, options.waitForState))
+            ) {
+              sub && sub.unsubscribe();
+              resolve(this.#getCurrentSnapshot(caller));
+            }
+          });
+        });
+
+        return Promise.race([waitPromise, timeoutPromise]) as Promise<{
+          checksum: string;
+          snapshot: CallerSnapshotFrom<TMachine>;
+        }>;
+      }
+
+      // const checksum =
+      return this.#getCurrentSnapshot(caller);
+    }
+
+    #getCurrentSnapshot(caller: Caller) {
+      const fullSnapshot = this.actor!.getSnapshot();
+      const callerSnapshot = this.#createCallerSnapshot(
+        fullSnapshot,
+        caller.id
+      );
       const checksum = this.#calculateChecksum(fullSnapshot);
-      this.snapshotCache.set(checksum, {
-        snapshot: fullSnapshot,
-        timestamp: Date.now(),
-      });
+      return { snapshot: callerSnapshot, checksum };
+    }
 
-      // Schedule cleanup for this checksum
-      this.#scheduleSnapshotCacheCleanup(checksum);
+    #matchesEvent(
+      snapshot: SnapshotFrom<TMachine>,
+      event: ClientEventFrom<TMachine>
+    ): boolean {
+      // todo implement later
+      return true;
+    }
 
-      const snapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
-      return {
-        snapshot,
-        checksum,
-      };
+    #matchesState(
+      snapshot: SnapshotFrom<TMachine>,
+      stateValue: StateValueFrom<TMachine>
+    ): boolean {
+      return matchesState(stateValue, snapshot);
     }
 
     /**
