@@ -643,7 +643,9 @@ Returns a function with the following signature:
     actorId: string;
     accessToken: string;
     input?: Record<string, unknown>;
-    waitFor?: string;
+    waitForEvent?: ClientEventFrom<TMachine>;
+    waitForState?: StateValueFrom<TMachine>;
+    timeout?: number;
   },
   options?: RequestInit
 ) =>
@@ -652,6 +654,16 @@ Returns a function with the following signature:
     checksum: string;
   }>;
 ```
+
+The `waitForEvent` and `waitForState` parameters allow you to specify conditions for when the snapshot should be returned:
+
+- `waitForEvent`: Waits for a specific event to be received by the actor before returning the snapshot. The event object must match exactly (deep equality check) with the received event.
+- `waitForState`: Waits for the actor to reach a specific state before returning the snapshot. State matching is performed as described in the XState documentation.
+
+State matching works as follows:
+- For simple states, an exact string match is performed.
+- For compound states, a partial object match is performed. The provided state value must be a subset of the current state value.
+- For parallel states, all specified regions must match.
 
 Example usage:
 
@@ -664,12 +676,46 @@ const fetchTodoActor = createActorFetch<TodoMachine>({
   host: "your-worker.workers.dev",
 });
 
+// Wait for a specific event
 const { snapshot, checksum } = await fetchTodoActor({
   actorId: "todo-123",
   accessToken: "your-access-token",
-  waitFor: "TODOS_LOADED",
+  waitForEvent: { type: "TODOS_LOADED" },
+  timeout: 5000, // 5 seconds timeout
+});
+
+// Wait for a specific state
+const { snapshot, checksum } = await fetchTodoActor({
+  actorId: "todo-123",
+  accessToken: "your-access-token",
+  waitForState: { loaded: "success" },
+  timeout: 5000, // 5 seconds timeout
 });
 ```
+
+If the specified event is not received or the state is not reached within the timeout period, the function will throw an error with a 408 (Request Timeout) status. You should handle this error in your application:
+
+```typescript
+try {
+  const { snapshot, checksum } = await fetchTodoActor({
+    actorId: "todo-123",
+    accessToken: "your-access-token",
+    waitForEvent: { type: "TODOS_LOADED" },
+    timeout: 5000,
+  });
+  // Use the snapshot data
+} catch (error) {
+  if (error.status === 408) {
+    console.error("Timeout waiting for actor response");
+    // Handle timeout error (e.g., show an error message to the user)
+  } else {
+    console.error("Error fetching actor data:", error);
+    // Handle other errors
+  }
+}
+```
+
+By using `waitForEvent` or `waitForState`, you can ensure that your server-side rendering or initial data fetch waits for the actor to reach a specific state or process a particular event before returning the snapshot. This allows for more precise control over when data is considered ready for rendering or further processing.
 
 #### `createAccessToken({ signingKey, actorId, actorType, callerId, callerType })`
 
