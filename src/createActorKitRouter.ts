@@ -87,7 +87,7 @@ export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
       );
     } catch (error: any) {
       return new Response(
-        `Error: ${error.message}. API requests must specify a valid caller in Bearer token in the Authorization header using fetch method created from 'createActorFetch' or use 'createAcccessToken' directly.`,
+        `Error: ${error.message}. API requests must specify a valid caller in Bearer token in the Authorization header using fetch method created from 'createActorFetch' or use 'createAccessToken' directly.`,
         { status: 401 }
       );
     }
@@ -108,12 +108,22 @@ export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
     }
 
     if (request.headers.get("Upgrade") === "websocket") {
-      return durableObjectStub.fetch(request as any) as any; // idk man
+      return durableObjectStub.fetch(request as any) as any; // Handle WebSocket upgrade
     }
 
     if (request.method === "GET") {
-      const result = await durableObjectStub.getSnapshot(caller);
-      return new Response(JSON.stringify(result));
+      const { waitForEvent, waitForState, timeout, errorOnWaitTimeout } = 
+        Object.fromEntries(new URL(request.url).searchParams);
+      
+      const result = await durableObjectStub.getSnapshot(caller, {
+        waitForEvent: waitForEvent ? JSON.parse(waitForEvent) : undefined,
+        waitForState: waitForState ? JSON.parse(waitForState) : undefined,
+        timeout: timeout ? parseInt(timeout, 10) : undefined,
+        errorOnWaitTimeout: errorOnWaitTimeout ? errorOnWaitTimeout === 'true' : undefined,
+      });
+      return new Response(JSON.stringify(result), {
+        headers: { "Content-Type": "application/json" },
+      });
     } else if (request.method === "POST") {
       let event: AnyEvent;
       try {
@@ -125,7 +135,6 @@ export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
         });
       }
 
-      // todo fix types on this
       durableObjectStub.send({
         ...event,
         caller,

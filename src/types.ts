@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { AnyStateMachine, SnapshotFrom, StateMachine } from "xstate";
 import type { z } from "zod";
+import type { StateValueFrom } from "xstate";
 import type {
   AnyEventSchema,
   BaseEventSchema,
@@ -26,10 +27,15 @@ export interface ActorServerMethods<TMachine extends ActorKitStateMachine> {
     input: Record<string, unknown>;
   }): void;
   send(event: ClientEventFrom<TMachine> | ServiceEventFrom<TMachine>): void;
-  getSnapshot(caller: Caller): {
+  getSnapshot(caller: Caller, options?: {
+    waitForEvent?: ClientEventFrom<TMachine>;
+    waitForState?: StateValueFrom<TMachine>;
+    timeout?: number;
+    errorOnWaitTimeout?: boolean;
+  }): Promise<{
     checksum: string;
     snapshot: CallerSnapshotFrom<TMachine>;
-  };
+  }>;
 }
 
 export type ActorServer<

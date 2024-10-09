@@ -1,5 +1,10 @@
+import { StateValueFrom } from "xstate";
 import { z } from "zod";
-import { ActorKitStateMachine, CallerSnapshotFrom } from "./types";
+import {
+  ActorKitStateMachine,
+  CallerSnapshotFrom,
+  ClientEventFrom,
+} from "./types";
 
 const ResponseSchema = z.object({
   snapshot: z.record(z.any()),
@@ -18,7 +23,10 @@ export function createActorFetch<TMachine extends ActorKitStateMachine>({
       actorId: string;
       accessToken: string;
       input?: Record<string, unknown>;
-      waitFor?: string; // Add this new parameter
+      waitForEvent?: ClientEventFrom<TMachine>;
+      waitForState?: StateValueFrom<TMachine>;
+      timeout?: number;
+      errorOnWaitTimeout?: boolean;
     },
     options?: RequestInit
   ): Promise<{
@@ -33,10 +41,34 @@ export function createActorFetch<TMachine extends ActorKitStateMachine>({
     const protocol = getHttpProtocol(host);
     const url = new URL(`${protocol}://${host}${route}`);
 
-    // Add input and waitFor to URL parameters
+    // Add input to URL parameters
     url.searchParams.append("input", JSON.stringify(input));
-    if (props.waitFor) {
-      url.searchParams.append("waitFor", props.waitFor);
+
+    // Add waitForEvent or waitForState to URL parameters
+    if (props.waitForEvent) {
+      url.searchParams.append(
+        "waitForEvent",
+        JSON.stringify(props.waitForEvent)
+      );
+    }
+    if (props.waitForState) {
+      url.searchParams.append(
+        "waitForState",
+        JSON.stringify(props.waitForState)
+      );
+    }
+
+    // Add timeout to URL parameters if specified
+    if (props.timeout) {
+      url.searchParams.append("timeout", props.timeout.toString());
+    }
+
+    // Add errorOnWaitTimeout to URL parameters if specified
+    if (props.errorOnWaitTimeout !== undefined) {
+      url.searchParams.append(
+        "errorOnWaitTimeout",
+        props.errorOnWaitTimeout.toString()
+      );
     }
 
     const response = await fetch(url.toString(), {
@@ -48,6 +80,11 @@ export function createActorFetch<TMachine extends ActorKitStateMachine>({
     });
 
     if (!response.ok) {
+      if (response.status === 408 && props.errorOnWaitTimeout !== false) {
+        throw new Error(
+          `Timeout waiting for actor response: ${response.statusText}`
+        );
+      }
       throw new Error(`Failed to fetch actor: ${response.statusText}`);
     }
 
