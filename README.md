@@ -646,6 +646,7 @@ Returns a function with the following signature:
     waitForEvent?: ClientEventFrom<TMachine>;
     waitForState?: StateValueFrom<TMachine>;
     timeout?: number;
+    errorOnWaitTimeout?: boolean;
   },
   options?: RequestInit
 ) =>
@@ -655,10 +656,13 @@ Returns a function with the following signature:
   }>;
 ```
 
-The `waitForEvent` and `waitForState` parameters allow you to specify conditions for when the snapshot should be returned:
+The `waitForEvent`, `waitForState`, and `errorOnWaitTimeout` parameters allow you to specify conditions for when and how the snapshot should be returned:
 
 - `waitForEvent`: Waits for a specific event to be received by the actor before returning the snapshot. The event object must match exactly (deep equality check) with the received event.
 - `waitForState`: Waits for the actor to reach a specific state before returning the snapshot. State matching is performed as described in the XState documentation.
+- `errorOnWaitTimeout`: Determines the behavior when a timeout occurs while waiting for an event or state. Default is `true`.
+  - If `true` (default), throws a 408 (Request Timeout) error on timeout.
+  - If `false`, returns a 200 status with the current snapshot, even if the wait condition wasn't met.
 
 State matching works as follows:
 - For simple states, an exact string match is performed.
@@ -676,32 +680,36 @@ const fetchTodoActor = createActorFetch<TodoMachine>({
   host: "your-worker.workers.dev",
 });
 
-// Wait for a specific event
+// Wait for a specific event, throw error on timeout
 const { snapshot, checksum } = await fetchTodoActor({
   actorId: "todo-123",
   accessToken: "your-access-token",
   waitForEvent: { type: "TODOS_LOADED" },
   timeout: 5000, // 5 seconds timeout
+  errorOnWaitTimeout: true, // default behavior
 });
 
-// Wait for a specific state
+// Wait for a specific state, return current snapshot on timeout
 const { snapshot, checksum } = await fetchTodoActor({
   actorId: "todo-123",
   accessToken: "your-access-token",
   waitForState: { loaded: "success" },
   timeout: 5000, // 5 seconds timeout
+  errorOnWaitTimeout: false,
 });
 ```
 
-If the specified event is not received or the state is not reached within the timeout period, the function will throw an error with a 408 (Request Timeout) status. You should handle this error in your application:
+Here's how to handle different timeout scenarios:
 
 ```typescript
 try {
+  // Scenario 1: Error on timeout (default behavior)
   const { snapshot, checksum } = await fetchTodoActor({
     actorId: "todo-123",
     accessToken: "your-access-token",
     waitForEvent: { type: "TODOS_LOADED" },
     timeout: 5000,
+    // errorOnWaitTimeout: true, // This is the default
   });
   // Use the snapshot data
 } catch (error) {
@@ -713,9 +721,20 @@ try {
     // Handle other errors
   }
 }
+
+// Scenario 2: Return current snapshot on timeout
+const { snapshot, checksum } = await fetchTodoActor({
+  actorId: "todo-123",
+  accessToken: "your-access-token",
+  waitForState: { loaded: "success" },
+  timeout: 5000,
+  errorOnWaitTimeout: false,
+});
+// Always returns a snapshot, even if the wait condition wasn't met
+// You may want to check if the desired state or event was reached
 ```
 
-By using `waitForEvent` or `waitForState`, you can ensure that your server-side rendering or initial data fetch waits for the actor to reach a specific state or process a particular event before returning the snapshot. This allows for more precise control over when data is considered ready for rendering or further processing.
+By using `waitForEvent` or `waitForState` along with `errorOnWaitTimeout`, you can control how your server-side rendering or initial data fetch behaves when waiting for specific actor states or events. This allows for flexible error handling and timeout management in your application.
 
 #### `createAccessToken({ signingKey, actorId, actorType, callerId, callerType })`
 
