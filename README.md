@@ -971,6 +971,7 @@ Actor Kit builds upon and draws inspiration from several excellent technologies:
 - [Cloudflare Workers](https://workers.cloudflare.com/): A serverless platform for building and deploying applications at the edge.
 - [Zod](https://zod.dev/): A TypeScript-first schema declaration and validation library.
 - [PartyKit](https://www.partykit.io/): An inspiration for Actor Kit, providing real-time multiplayer infrastructure.
+- [PartyServer](https://github.com/threepointone/partyserver/tree/main): PartyKit, for workers
 - [xstate-migrate](https://github.com/jonmumm/xstate-migrate): A migration library for persisted XState machines, designed to facilitate state machine migrations when updating your XState configurations.
 
 ## 🚧 Development Status
