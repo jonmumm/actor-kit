@@ -5,6 +5,7 @@ Actor Kit is a library for running state machines in Cloudflare Workers, leverag
 ## 📚 Table of Contents
 
 - [💾 Installation](#-installation)
+- [🏗️ Architecture](#️-architecture)
 - [🌟 Key Concepts](#-key-concepts)
 - [🛠️ Usage](#️-usage)
   - [1️⃣ Define your event schemas and types](#1️⃣-define-your-event-schemas-and-types)
@@ -53,6 +54,58 @@ pnpm add actor-kit xstate zod
 - 🔄 **Seamless Synchronization**: Actor Kit handles state synchronization between server and clients automatically.
 - 🔐 **Public and Private Data**: Manage shared data across all clients and caller-specific information securely.
 - 🌐 **Distributed Systems**: Built for scalable, distributed applications running on edge computing platforms.
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    subgraph "User Browser"
+        A[Client Components<br>APIs: useSelector, useSend]
+        B[Actor Kit Client<br>API: createActorKitClient]
+    end
+
+    subgraph "Cloudflare Worker"
+        C[Actor Kit Router<br>API: createActorKitRouter]
+        subgraph "Actor Server"
+            D[Machine Server DO<br>API: createMachineServer]
+            X[XState Machine]
+            F[(Durable Object Storage)]
+        end
+    end
+
+    subgraph "Server-Side Rendering"
+        E[Next.js/Remix/etc<br>APIs: createActorFetch, createAccessToken]
+    end
+
+    G[External API]
+    H[(Database)]
+    I[Third-party Service<br>e.g., Authentication, Payment, Analytics]
+
+    A -->|Events| B
+    B <-->|Send Events / Recv Patches| C
+    C -->|Route| D
+    D <-->|Manage State| X
+    X <-->|Read/Write| F
+    X --> G
+    X --> H
+    X --> I
+    E <-->|Fetch/Send Events| C
+    E -->|Deliver HTML/JS| A
+    E <--> H
+
+    classDef browser fill:#f0f0f0,stroke:#333,stroke-width:2px;
+    classDef worker fill:#ffe6e6,stroke:#333,stroke-width:2px;
+    classDef actorserver fill:#ffcccc,stroke:#333,stroke-width:2px;
+    classDef ssr fill:#ffe6ff,stroke:#333,stroke-width:2px;
+    classDef storage fill:#e6e6ff,stroke:#333,stroke-width:2px;
+    classDef external fill:#e6ffff,stroke:#333,stroke-width:2px;
+
+    class A,B browser;
+    class C worker;
+    class D,X,F actorserver;
+    class E ssr;
+    class G,H,I external;
+```
 
 ## 🛠️ Usage
 
