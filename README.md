@@ -740,7 +740,6 @@ const client = createActorKitClient<TodoMachine>({
 await client.connect();
 client.send({ type: "ADD_TODO", text: "Buy milk" });
 ```
-Certainly! Here's the complete `actor-kit/react` section again:
 
 ### ⚛️ `actor-kit/react`
 
