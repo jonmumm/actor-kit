@@ -49,9 +49,9 @@ examples/remix-actorkit-todo/
 
 ## 🛠️ How It Works
 
-### 1. Server-Side Integration
+### 1. Server Setup
 
-The `server.ts` file sets up a single Cloudflare Worker that handles both Remix requests and Actor Kit API calls:
+The `server.ts` file sets up a Cloudflare Worker that handles both Remix requests and Actor Kit API calls:
 
 ````typescript
 import { createActorKitRouter } from "actor-kit/worker";
@@ -72,7 +72,7 @@ export default class Worker extends WorkerEntrypoint<Env> {
 }
 ````
 
-This setup allows the Worker to handle both Remix routes and Actor Kit API calls, providing a unified backend for the application.
+This setup uses `createActorKitRouter` to handle Actor Kit API requests, while delegating other requests to the Remix application.
 
 ### 2. Actor Setup
 
@@ -95,20 +95,20 @@ export const Todo = createMachineServer({
     persisted: true,
   },
 });
-
-export type TodoServer = InstanceType<typeof Todo>;
-export default Todo;
 ````
 
 #### Session Actor (`app/session.server.ts`)
 
 ````typescript
-import { createMachineServer } from 'actor-kit/worker';
-import { createSessionListMachine } from './session.machine';
-import { SessionClientEventSchema, SessionServiceEventSchema } from './session.schemas';
+import { createMachineServer } from "actor-kit/worker";
+import { createSessionMachine } from "./session.machine";
+import {
+  SessionClientEventSchema,
+  SessionServiceEventSchema,
+} from "./session.schemas";
 
 export const Session = createMachineServer({
-  createMachine: createSessionListMachine,
+  createMachine: createSessionMachine,
   eventSchemas: {
     client: SessionClientEventSchema,
     service: SessionServiceEventSchema,
@@ -117,41 +117,68 @@ export const Session = createMachineServer({
     persisted: true,
   },
 });
-
-export type SessionServer = InstanceType<typeof Session>;
-export default Session;
 ````
 
-These setups create persistent, type-safe actors that can handle client and service events.
+The Session actor is used to store the list of todo list IDs that have been created by the user, allowing for persistence across page reloads.
 
 ### 3. Remix Integration
 
-The `root.tsx` file sets up the Session actor context for the entire application:
+In the root layout (`root.tsx`), we set up the Session actor context:
 
 ````typescript
-export function Layout({ children }: { children: React.ReactNode }) {
-  const { sessionId, accessToken, payload, host, pageSessionId } =
-    useLoaderData<typeof loader>();
+export async function loader({ context }: LoaderFunctionArgs) {
+  const fetchSession = createActorFetch<SessionMachine>({
+    actorType: "session",
+    host: context.env.ACTOR_KIT_HOST,
+  });
+
+  const accessToken = await createAccessToken({
+    signingKey: context.env.ACTOR_KIT_SECRET,
+    actorId: context.sessionId,
+    actorType: "session",
+    callerId: context.userId,
+    callerType: "client",
+  });
+
+  const payload = await fetchSession({
+    actorId: context.sessionId,
+    accessToken,
+  });
+
+  return json({
+    sessionId: context.sessionId,
+    accessToken,
+    payload,
+    host: context.env.ACTOR_KIT_HOST,
+  });
+}
+
+export default function App() {
+  const { host, sessionId, accessToken, payload } = useLoaderData<typeof loader>();
 
   return (
-    <SessionProvider
-      host={host}
-      actorId={sessionId}
-      checksum={payload.checksum}
-      accessToken={accessToken}
-      initialSnapshot={payload.snapshot}
-    >
-      {children}
-    </SessionProvider>
+    <html lang="en">
+      <body>
+        <SessionProvider
+          host={host}
+          actorId={sessionId}
+          checksum={payload.checksum}
+          accessToken={accessToken}
+          initialSnapshot={payload.snapshot}
+        >
+          <Outlet />
+        </SessionProvider>
+      </body>
+    </html>
   );
 }
 ````
 
-This ensures that the session context is available throughout the application.
+This setup uses `createActorFetch` and `createAccessToken` from Actor Kit to fetch the initial session state and set up the `SessionProvider`.
 
 ### 4. Route-Level Integration
 
-In the todo list page (`app/routes/lists.$id.tsx`), we set up the Todo actor context:
+In the todo list page (`routes/lists.$id.tsx`), we set up the Todo actor context:
 
 ````typescript
 export async function loader({ params, context }: LoaderFunctionArgs) {
@@ -160,28 +187,20 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
     host: context.env.ACTOR_KIT_HOST,
   });
 
-  const listId = params.id;
-  if (!listId) {
-    throw new Error("listId is required");
-  }
-
   const accessToken = await createAccessToken({
     signingKey: context.env.ACTOR_KIT_SECRET,
-    actorId: listId,
+    actorId: params.id!,
     actorType: "todo",
     callerId: context.userId,
     callerType: "client",
   });
+
   const payload = await fetchTodoActor({
-    actorId: listId,
+    actorId: params.id!,
     accessToken,
   });
-  return json({
-    listId,
-    accessToken,
-    payload,
-    host: context.env.ACTOR_KIT_HOST,
-  });
+
+  return json({ listId: params.id, accessToken, payload, host: context.env.ACTOR_KIT_HOST });
 }
 
 export default function ListPage() {
@@ -201,26 +220,65 @@ export default function ListPage() {
 }
 ````
 
-This setup fetches the initial state of the Todo actor and provides it to the client-side components.
+### 5. Client-Side Component
 
-### 5. Real-Time Updates
-
-The `TodoList` component uses the Actor Kit context to send and receive real-time updates:
+The `TodoList` component (`app/todo.components.tsx`) demonstrates how to use the Actor Kit context to interact with the state machine:
 
 ````typescript
 export function TodoList() {
   const todos = TodoContext.useSelector((state) => state.public.todos);
   const send = TodoContext.useSend();
+  const [newTodoText, setNewTodoText] = useState("");
 
-  const handleAddTodo = (text: string) => {
-    send({ type: "ADD_TODO", text });
+  const userId = SessionContext.useSelector((state) => state.public.userId);
+  const ownerId = TodoContext.useSelector((state) => state.public.ownerId);
+  const isOwner = ownerId === userId;
+
+  const handleAddTodo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newTodoText.trim()) {
+      send({ type: "ADD_TODO", text: newTodoText.trim() });
+      setNewTodoText("");
+    }
   };
 
-  // ... rest of the component
+  return (
+    <div>
+      <h1>Todo List</h1>
+      {isOwner && (
+        <form onSubmit={handleAddTodo}>
+          <input
+            type="text"
+            value={newTodoText}
+            onChange={(e) => setNewTodoText(e.target.value)}
+            placeholder="Add a new todo"
+          />
+          <button type="submit">Add</button>
+        </form>
+      )}
+      <ul>
+        {todos.map((todo) => (
+          <li key={todo.id}>
+            <span style={{ textDecoration: todo.completed ? "line-through" : "none" }}>
+              {todo.text}
+            </span>
+            {isOwner && (
+              <>
+                <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+                  {todo.completed ? "Undo" : "Complete"}
+                </button>
+                <button onClick={() => send({ type: "DELETE_TODO", id: todo.id })}>
+                  Delete
+                </button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 ````
-
-When a todo is added, the `send` function dispatches an event to the Actor Kit backend, which then updates all connected clients in real-time.
 
 ## 🚀 Getting Started
 
