@@ -1,5 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import type { AnyStateMachine, SnapshotFrom, StateMachine } from "xstate";
+import { ReactNode } from "react";
+import type {
+  AnyStateMachine,
+  SnapshotFrom,
+  StateMachine,
+  StateValueFrom,
+} from "xstate";
 import type { z } from "zod";
 import type {
   AnyEventSchema,
@@ -190,3 +196,10 @@ type KebabToCamelCase<S extends string> = S extends `${infer T}-${infer U}`
 export type KebabToScreamingSnake<S extends string> = Uppercase<
   CamelToSnakeCase<KebabToCamelCase<S>>
 >;
+export interface MatchesProps<TMachine extends ActorKitStateMachine> {
+  state: StateValueFrom<TMachine>;
+  and?: StateValueFrom<TMachine>;
+  or?: StateValueFrom<TMachine>;
+  not?: boolean;
+  initialValueOverride?: boolean;
+}

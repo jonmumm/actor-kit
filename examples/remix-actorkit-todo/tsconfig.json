@@ -108,7 +108,7 @@
   },
 
   // Specifies an array of glob patterns that match files to be included in compilation
-  "include": ["remix.env.d.ts", "**/*.ts", "**/*.tsx"],
+  "include": ["remix.env.d.ts", "**/*.ts", "**/*.tsx", "../nextjs-actorkit-todo/src/session.ts"],
 
   // Specifies an array of glob patterns that match files to be excluded from compilation
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

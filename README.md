@@ -740,12 +740,13 @@ const client = createActorKitClient<TodoMachine>({
 await client.connect();
 client.send({ type: "ADD_TODO", text: "Buy milk" });
 ```
+Certainly! Here's the complete `actor-kit/react` section again:
 
 ### ⚛️ `actor-kit/react`
 
 #### `createActorKitContext<TMachine>(actorType: string)`
 
-Creates a React context and associated hooks for integrating Actor Kit into a React application.
+Creates a React context and associated hooks and components for integrating Actor Kit into a React application.
 
 - `TMachine`: Type parameter extending `ActorKitStateMachine`
 - `actorType`: String identifier for the actor type
@@ -756,6 +757,8 @@ Returns an object with:
 - `useClient()`: Hook to access the Actor Kit client directly
 - `useSelector<T>(selector: (snapshot: CallerSnapshotFrom<TMachine>) => T)`: Hook to select and subscribe to specific parts of the state
 - `useSend()`: Hook to get a function for sending events to the Actor Kit client
+- `useMatches(stateValue: StateValueFrom<TMachine>)`: Hook to check if the current state matches a given state value
+- `Matches`: Component for conditionally rendering based on state matches
 
 Example usage:
 
@@ -786,18 +789,181 @@ function App() {
 function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
   const send = TodoActorKitContext.useSend();
+  const isIdle = TodoActorKitContext.useMatches("idle");
 
   return (
-    <ul>
-      {todos.map((todo) => (
-        <li key={todo.id}>
-          {todo.text}
-          <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
-            Toggle
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div>
+      {isIdle && <p>The todo list is idle</p>}
+      <ul>
+        {todos.map((todo) => (
+          <li key={todo.id}>
+            {todo.text}
+            <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+              Toggle
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+#### `useClient()`
+
+Hook to access the Actor Kit client directly.
+
+Example usage:
+
+```tsx
+function TodoActions() {
+  const client = TodoActorKitContext.useClient();
+
+  const handleClearCompleted = () => {
+    client.send({ type: "CLEAR_COMPLETED" });
+  };
+
+  return (
+    <button onClick={handleClearCompleted}>Clear Completed</button>
+  );
+}
+```
+
+#### `useSelector<T>(selector: (snapshot: CallerSnapshotFrom<TMachine>) => T)`
+
+Hook to select and subscribe to specific parts of the state.
+
+Example usage:
+
+```tsx
+function CompletedTodosCount() {
+  const completedCount = TodoActorKitContext.useSelector((state) => 
+    state.public.todos.filter(todo => todo.completed).length
+  );
+
+  return <span>Completed todos: {completedCount}</span>;
+}
+```
+
+#### `useSend()`
+
+Hook to get a function for sending events to the Actor Kit client.
+
+Example usage:
+
+```tsx
+function AddTodoForm() {
+  const [text, setText] = useState("");
+  const send = TodoActorKitContext.useSend();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (text.trim()) {
+      send({ type: "ADD_TODO", text: text.trim() });
+      setText("");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Add a new todo"
+      />
+      <button type="submit">Add</button>
+    </form>
+  );
+}
+```
+
+#### `useMatches(stateValue: StateValueFrom<TMachine>)`
+
+Hook to check if the current state matches a given state value.
+
+Example usage:
+
+```tsx
+function LoadingIndicator() {
+  const isLoading = TodoActorKitContext.useMatches("loading");
+
+  return isLoading ? <div>Loading...</div> : null;
+}
+```
+
+#### `Matches` Component
+
+The `Matches` component allows for conditional rendering based on the current state of the actor machine.
+
+Props:
+- `state: StateValueFrom<TMachine>`: The state value to match against
+- `and?: StateValueFrom<TMachine>`: Optional additional state to match (AND condition)
+- `or?: StateValueFrom<TMachine>`: Optional alternative state to match (OR condition)
+- `not?: boolean`: Invert the match result if true
+- `children: ReactNode`: Content to render when the condition is met
+- `initialValueOverride?: boolean`: Optional override for the initial render value
+
+Example usage:
+
+```tsx
+function TodoList() {
+  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
+  const send = TodoActorKitContext.useSend();
+
+  return (
+    <div>
+      <TodoActorKitContext.Matches state="idle">
+        <p>The todo list is idle</p>
+      </TodoActorKitContext.Matches>
+      <TodoActorKitContext.Matches state="loading">
+        <p>Loading todos...</p>
+      </TodoActorKitContext.Matches>
+      <TodoActorKitContext.Matches state="error" not>
+        <ul>
+          {todos.map((todo) => (
+            <li key={todo.id}>
+              {todo.text}
+              <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+                Toggle
+              </button>
+            </li>
+          ))}
+        </ul>
+      </TodoActorKitContext.Matches>
+    </div>
+  );
+}
+```
+
+You can also use the `Matches` component with more complex conditions:
+
+```tsx
+function TodoList() {
+  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
+  const send = TodoActorKitContext.useSend();
+
+  return (
+    <div>
+      <TodoActorKitContext.Matches state="idle" or="ready">
+        <p>The todo list is ready for action</p>
+      </TodoActorKitContext.Matches>
+      <TodoActorKitContext.Matches state="loading" and={{ data: "fetching" }}>
+        <p>Fetching todos from the server...</p>
+      </TodoActorKitContext.Matches>
+      <TodoActorKitContext.Matches state="error" not>
+        <ul>
+          {todos.map((todo) => (
+            <li key={todo.id}>
+              {todo.text}
+              <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+                Toggle
+              </button>
+            </li>
+          ))}
+        </ul>
+      </TodoActorKitContext.Matches>
+    </div>
   );
 }
 ```

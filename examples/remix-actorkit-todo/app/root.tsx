@@ -11,26 +11,46 @@ import {
 } from "@remix-run/react";
 
 import type { LinksFunction, LoaderFunctionArgs } from "@remix-run/cloudflare";
-import { UserContext } from "./user.context";
+import { createAccessToken, createActorFetch } from "actor-kit/server";
+import { SessionProvider } from "./session.context";
+import { SessionMachine } from "./session.machine";
 
 export const links: LinksFunction = () => [
   ...(cssBundleHref ? [{ rel: "stylesheet", href: cssBundleHref }] : []),
 ];
 
-export async function loader({ params, context }: LoaderFunctionArgs) {
+export async function loader({ context }: LoaderFunctionArgs) {
+  const fetchSession = createActorFetch<SessionMachine>({
+    actorType: "session",
+    host: context.env.ACTOR_KIT_HOST,
+  });
+
+  const accessToken = await createAccessToken({
+    signingKey: context.env.ACTOR_KIT_SECRET,
+    actorId: context.sessionId,
+    actorType: "session",
+    callerId: context.userId,
+    callerType: "client",
+  });
+
+  const payload = await fetchSession({
+    actorId: context.sessionId,
+    accessToken,
+  });
+
   return json({
-    userId: context.userId,
+    sessionId: context.sessionId,
+    pageSessionId: context.pageSessionId,
+    accessToken,
+    payload,
+    host: context.env.ACTOR_KIT_HOST,
     NODE_ENV: context.env.NODE_ENV,
   });
 }
 
-export function Layout({ children }: { children: React.ReactNode }) {
-  const { userId } = useLoaderData<typeof loader>();
-  return <UserContext.Provider value={userId}>{children}</UserContext.Provider>;
-}
-
 export default function App() {
-  const { NODE_ENV } = useLoaderData<typeof loader>();
+  const { NODE_ENV, host, sessionId, accessToken, payload } =
+    useLoaderData<typeof loader>();
   const isDevelopment = NODE_ENV === "development";
 
   return (
@@ -42,9 +62,15 @@ export default function App() {
         <Links />
       </head>
       <body>
-        <Layout>
+        <SessionProvider
+          host={host}
+          actorId={sessionId}
+          checksum={payload.checksum}
+          accessToken={accessToken}
+          initialSnapshot={payload.snapshot}
+        >
           <Outlet />
-        </Layout>
+        </SessionProvider>
         <ScrollRestoration />
         <Scripts />
         {isDevelopment && <LiveReload />}

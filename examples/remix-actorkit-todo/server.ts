@@ -1,4 +1,5 @@
 export { Todo } from "./app/todo.server";
+export { Session } from "./app/session.server";
 export { Remix } from "./app/remix.server";
 
 import { logDevReady } from "@remix-run/cloudflare";
@@ -12,7 +13,7 @@ if (process.env.NODE_ENV === "development") {
   logDevReady(build);
 }
 
-const router = createActorKitRouter<Env>(["todo"]);
+const router = createActorKitRouter<Env>(["todo", "session"]);
 
 export default class Worker extends WorkerEntrypoint<Env> {
   fetch(request: Request): Promise<Response> | Response {
