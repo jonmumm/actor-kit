@@ -39,15 +39,6 @@ const WebSocketAttachmentSchema = z.object({
 });
 type WebSocketAttachment = z.infer<typeof WebSocketAttachmentSchema>;
 
-const MyEvent = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("client"),
-    data: z.object({
-      message: z.string(),
-    }),
-  }),
-]);
-
 /**
  * Creates a MachineServer class that extends DurableObject and implements ActorServer.
  * This function is the main entry point for creating a machine server.
