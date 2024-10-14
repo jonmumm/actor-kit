@@ -583,16 +583,6 @@ These examples showcase how to integrate Actor Kit with different frameworks, de
 
 ## 📖 API Reference
 
-You're absolutely right. Let's update the API reference section for `createMachineServer` to match the style of the rest of the documentation. Here's the revised version:
-
-You're right, there are some discrepancies between the actual implementation and the documentation. Let's update the API reference for `createMachineServer` to accurately reflect the current implementation:
-
-You're absolutely right. Let's update the example to properly implement the private and public context types instead of using `any`. Here's the revised version:
-
-
-
-You're absolutely right. Let's update the heading to include the types, following the style of the other documentation. Here's the revised version:
-
 ### 🔧 actor-kit/worker
 
 #### `createMachineServer<TClientEvent, TServiceEvent, TInputSchema, TMachine, Env>(props)`
