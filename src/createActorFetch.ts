@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { BaseActorKitStateMachine, CallerSnapshotFrom } from "./types";
+import { AnyActorKitStateMachine, CallerSnapshotFrom } from "./types";
 
 const ResponseSchema = z.object({
   snapshot: z.record(z.any()),
   checksum: z.string(),
 });
 
-export function createActorFetch<TMachine extends BaseActorKitStateMachine>({
+export function createActorFetch<TMachine extends AnyActorKitStateMachine>({
   actorType,
   host,
 }: {
