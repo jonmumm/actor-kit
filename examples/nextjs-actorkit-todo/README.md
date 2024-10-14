@@ -50,14 +50,19 @@ The `src/todo.server.ts` file creates the Todo server using Actor Kit:
 
 ```typescript
 import { createMachineServer } from "actor-kit/worker";
-import { createTodoListMachine } from "./todo.machine";
-import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoServiceEventSchema,
+  TodoInputPropsSchema,
+} from "./todo.schemas";
 
 export const Todo = createMachineServer({
-  createMachine: createTodoListMachine,
-  eventSchemas: {
-    client: TodoClientEventSchema,
-    service: TodoServiceEventSchema,
+  machine: todoMachine,
+  schemas: {
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
   },
   options: {
     persisted: true,
@@ -71,7 +76,7 @@ export default Todo;
 This setup:
 
 - Creates a machine server for the Todo list
-- Defines client and service event schemas
+- Defines client and service event schemas, as well as input props schema
 - Enables persistence for the Todo state
 
 ### 2. Cloudflare Worker Setup
@@ -140,6 +145,9 @@ export default async function TodoPage(props: { params: { id: string } }) {
   const payload = await fetchTodoActor({
     actorId: listId,
     accessToken,
+    input: {
+      initialTodos: [], // You can pass initial todos here if needed
+    },
   });
 
   return (
