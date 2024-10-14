@@ -1,15 +1,17 @@
 import { createMachineServer } from "actor-kit/worker";
-import { createSessionMachine } from "./session.machine";
+import { sessionMachine } from "./session.machine";
 import {
   SessionClientEventSchema,
+  SessionInputPropsSchema,
   SessionServiceEventSchema,
 } from "./session.schemas";
 
 export const Session = createMachineServer({
-  createMachine: createSessionMachine,
-  eventSchemas: {
-    client: SessionClientEventSchema,
-    service: SessionServiceEventSchema,
+  machine: sessionMachine,
+  schemas: {
+    clientEvent: SessionClientEventSchema,
+    serviceEvent: SessionServiceEventSchema,
+    inputProps: SessionInputPropsSchema,
   },
   options: {
     persisted: true,
