@@ -18,13 +18,13 @@ import type {
 } from "./createActorKitClient";
 import { createActorKitClient } from "./createActorKitClient";
 import type {
-  ActorKitStateMachine,
+  AnyActorKitStateMachine,
   CallerSnapshotFrom,
   ClientEventFrom,
   MatchesProps,
 } from "./types";
 
-export function createActorKitContext<TMachine extends ActorKitStateMachine>(
+export function createActorKitContext<TMachine extends AnyActorKitStateMachine>(
   actorType: string
 ) {
   const ActorKitContext = createContext<ActorKitClient<TMachine> | null>(null);

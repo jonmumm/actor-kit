@@ -14,3 +14,7 @@ export const TodoServiceEventSchema = z.discriminatedUnion("type", [
     ),
   }),
 ]);
+
+export const TodoInputPropsSchema = z.object({
+  foo: z.string(),
+});

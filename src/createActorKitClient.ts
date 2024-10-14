@@ -2,12 +2,12 @@ import { applyPatch } from "fast-json-patch";
 import { produce } from "immer";
 
 import {
-  ActorKitStateMachine,
+  AnyActorKitStateMachine,
   CallerSnapshotFrom,
   ClientEventFrom,
 } from "./types";
 
-export type ActorKitClientProps<TMachine extends ActorKitStateMachine> = {
+export type ActorKitClientProps<TMachine extends AnyActorKitStateMachine> = {
   host: string;
   actorType: string;
   actorId: string;
@@ -18,7 +18,7 @@ export type ActorKitClientProps<TMachine extends ActorKitStateMachine> = {
   onError?: (error: Error) => void;
 };
 
-export type ActorKitClient<TMachine extends ActorKitStateMachine> = {
+export type ActorKitClient<TMachine extends AnyActorKitStateMachine> = {
   connect: () => Promise<void>;
   disconnect: () => void;
   send: (event: ClientEventFrom<TMachine>) => void;
@@ -37,7 +37,7 @@ type Listener<T> = (state: T) => void;
  * @param {ActorKitClientProps<TMachine>} props - Configuration options for the client.
  * @returns {ActorKitClient<TMachine>} An object with methods to interact with the actor.
  */
-export function createActorKitClient<TMachine extends ActorKitStateMachine>(
+export function createActorKitClient<TMachine extends AnyActorKitStateMachine>(
   props: ActorKitClientProps<TMachine>
 ): ActorKitClient<TMachine> {
   let currentSnapshot = props.initialSnapshot;

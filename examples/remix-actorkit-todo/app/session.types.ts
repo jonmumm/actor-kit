@@ -19,3 +19,18 @@ export type SessionEvent =
   | WithActorKitEvent<SessionClientEvent, "client">
   | WithActorKitEvent<SessionServiceEvent, "service">
   | ActorKitSystemEvent;
+
+export type SessionPublicContext = {
+  id: string;
+  userId: string;
+  listIds: string[];
+};
+
+export type SessionPrivateContext = {
+  theme: "light" | "dark";
+};
+
+export type SessionServerContext = {
+  public: SessionPublicContext;
+  private: Record<string, SessionPrivateContext>;
+};

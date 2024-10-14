@@ -1,16 +1,18 @@
+import { MachineFromServer } from "actor-kit";
 import { createMachineServer } from "actor-kit/worker";
-import { z } from "zod";
-import { createTodoListMachine } from "./todo.machine";
-import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoInputPropsSchema,
+  TodoServiceEventSchema,
+} from "./todo.schemas";
 
 export const Todo = createMachineServer({
-  createMachine: createTodoListMachine,
+  machine: todoMachine,
   schemas: {
-    client: TodoClientEventSchema,
-    service: TodoServiceEventSchema,
-    input: z.object({
-      foo: z.string(),
-    }),
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
   },
   options: {
     persisted: true,
@@ -18,4 +20,5 @@ export const Todo = createMachineServer({
 });
 
 export type TodoServer = InstanceType<typeof Todo>;
+export type TodoMachine = MachineFromServer<TodoServer>;
 export default Todo;

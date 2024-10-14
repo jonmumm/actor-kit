@@ -49,11 +49,11 @@ examples/remix-actorkit-todo/
 
 ## 🛠️ How It Works
 
-### 1. Server Setup
+### 1. Main Setup
 
 The `server.ts` file sets up a Cloudflare Worker that handles both Remix requests and Actor Kit API calls:
 
-````typescript
+```typescript
 import { createActorKitRouter } from "actor-kit/worker";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Env } from "./app/env";
@@ -70,62 +70,130 @@ export default class Worker extends WorkerEntrypoint<Env> {
     return this.env.REMIX.get(id).fetch(request);
   }
 }
-````
+```
 
 This setup uses `createActorKitRouter` to handle Actor Kit API requests, while delegating other requests to the Remix application.
 
-### 2. Actor Setup
+### 2. Machine Definition
 
-The project uses two main actors: Todo and Session. Here's how they're set up:
+The project uses two main actors: Todo and Session. Here's how the Todo machine is defined:
 
-#### Todo Actor (`app/todo.server.ts`)
+#### Todo Machine (`app/todo.machine.ts`)
 
-````typescript
+```typescript
+import { ActorKitStateMachine } from "actor-kit";
+import { assign, setup } from "xstate";
+import type {
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext,
+  TodoServerContext,
+} from "./todo.types";
+
+export const todoMachine = setup({
+  types: {
+    context: {} as TodoServerContext,
+    events: {} as TodoEvent,
+    input: {} as TodoInput,
+  },
+  actions: {
+    addTodo: assign({
+      public: ({ context, event }) => {
+        if (event.type !== "ADD_TODO") return context.public;
+        return {
+          ...context.public,
+          todos: [
+            ...context.public.todos,
+            { id: crypto.randomUUID(), text: event.text, completed: false },
+          ],
+          lastSync: new Date().getTime(),
+        };
+      },
+    }),
+    // ... other actions
+  },
+  guards: {
+    isOwner: ({ context, event }) => event.caller.id === context.public.ownerId,
+  },
+}).createMachine({
+  id: "todo",
+  type: "parallel",
+  context: ({ input }: { input: TodoInput }) => ({
+    public: {
+      ownerId: input.caller.id,
+      todos: [],
+      lastSync: null,
+    },
+    private: {},
+  }),
+  states: {
+    Initialization: {
+      initial: "Ready",
+      states: {
+        Ready: {},
+      },
+    },
+    TodoManagement: {
+      on: {
+        ADD_TODO: {
+          actions: ["addTodo"],
+          guard: "isOwner",
+        },
+        // ... other event handlers
+      },
+    },
+  },
+}) satisfies ActorKitStateMachine<
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext
+>;
+
+export type TodoMachine = typeof todoMachine;
+```
+
+This machine definition uses the `satisfies` keyword to ensure type safety with the events and context types defined in the `todo.types.ts` file.
+
+### 3. Server Setup
+
+The server setup combines the machine definition with the schemas:
+
+#### Todo Server (`app/todo.server.ts`)
+
+```typescript
 import { createMachineServer } from "actor-kit/worker";
-import { createTodoListMachine } from "./todo.machine";
-import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoInputPropsSchema,
+  TodoServiceEventSchema,
+} from "./todo.schemas";
 
 export const Todo = createMachineServer({
-  createMachine: createTodoListMachine,
-  eventSchemas: {
-    client: TodoClientEventSchema,
-    service: TodoServiceEventSchema,
+  machine: todoMachine,
+  schemas: {
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
   },
   options: {
     persisted: true,
   },
 });
-````
 
-#### Session Actor (`app/session.server.ts`)
+export type TodoServer = InstanceType<typeof Todo>;
+export type TodoMachine = MachineFromServer<TodoServer>;
+```
 
-````typescript
-import { createMachineServer } from "actor-kit/worker";
-import { createSessionMachine } from "./session.machine";
-import {
-  SessionClientEventSchema,
-  SessionServiceEventSchema,
-} from "./session.schemas";
+This setup uses `createMachineServer` to create a server instance of the Todo machine, combining it with the schemas defined in `todo.schemas.ts`.
 
-export const Session = createMachineServer({
-  createMachine: createSessionMachine,
-  eventSchemas: {
-    client: SessionClientEventSchema,
-    service: SessionServiceEventSchema,
-  },
-  options: {
-    persisted: true,
-  },
-});
-````
-
-The Session actor is used to store the list of todo list IDs that have been created by the user, allowing for persistence across page reloads.
-
-### 3. Remix Integration
+### 4. Remix Integration
 
 In the root layout (`root.tsx`), we set up the Session actor context:
 
-````typescript
+```typescript
 export async function loader({ context }: LoaderFunctionArgs) {
   const fetchSession = createActorFetch<SessionMachine>({
     actorType: "session",
@@ -172,15 +240,15 @@ export default function App() {
     </html>
   );
 }
-````
+```
 
 This setup uses `createActorFetch` and `createAccessToken` from Actor Kit to fetch the initial session state and set up the `SessionProvider`.
 
-### 4. Route-Level Integration
+### 5. Route-Level Integration
 
 In the todo list page (`routes/lists.$id.tsx`), we set up the Todo actor context:
 
-````typescript
+```typescript
 export async function loader({ params, context }: LoaderFunctionArgs) {
   const fetchTodoActor = createActorFetch<TodoMachine>({
     actorType: "todo",
@@ -218,13 +286,13 @@ export default function ListPage() {
     </TodoProvider>
   );
 }
-````
+```
 
-### 5. Client-Side Component
+### 6. Client-Side Component
 
 The `TodoList` component (`app/todo.components.tsx`) demonstrates how to use the Actor Kit context to interact with the state machine:
 
-````typescript
+```typescript
 export function TodoList() {
   const todos = TodoContext.useSelector((state) => state.public.todos);
   const send = TodoContext.useSend();
@@ -278,7 +346,7 @@ export function TodoList() {
     </div>
   );
 }
-````
+```
 
 ## 🚀 Getting Started
 
@@ -352,3 +420,6 @@ To deploy the Remix + Actor Kit Todo Example to Cloudflare Workers:
    ```
 
 This example demonstrates how to create a complex, real-time application using Remix and Actor Kit, leveraging the power of Cloudflare Workers for both the frontend and backend. It showcases how to manage state across multiple clients, handle authentication, and implement owner-based access control, all within a single Worker environment.
+```
+
+This updated README now provides a more comprehensive overview of the project structure and implementation, including the machine definition, server setup, and how they interact with the schemas and types. It also maintains the original structure while incorporating the new changes and providing more detailed explanations.

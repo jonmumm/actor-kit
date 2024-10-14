@@ -6,13 +6,13 @@ import {
   AnyEventObject,
   createActor,
   SnapshotFrom,
-  StateMachine,
   Subscription,
 } from "xstate";
 import { z } from "zod";
 import { PERSISTED_SNAPSHOT_KEY } from "./constants";
 import { CallerSchema } from "./schemas";
 import {
+  ActorKitStateMachine,
   ActorKitSystemEvent,
   ActorServer,
   Caller,
@@ -55,29 +55,14 @@ const MyEvent = z.discriminatedUnion("type", [
 export const createMachineServer = <
   TClientEvent extends AnyEventObject,
   TServiceEvent extends AnyEventObject,
-  TInputSchema extends z.ZodTypeAny,
-  TMachine extends StateMachine<
-    {
-      public: any;
-      private: Record<string, any>;
-    } & {
-      [key: string]: unknown;
-    },
+  TInputSchema extends z.ZodObject<z.ZodRawShape>,
+  TMachine extends ActorKitStateMachine<
     | WithActorKitEvent<TClientEvent, "client">
     | WithActorKitEvent<TServiceEvent, "service">
     | ActorKitSystemEvent,
-    any, // children
-    any, // actor
-    any, // action
-    any, // guard
-    any, // delay
-    any, // state value
-    any, // tag
-    any, // input
-    any, // tag
-    any, // tag
-    any, // tag
-    any // output
+    z.infer<TInputSchema> & { id: string; caller: Caller },
+    any,
+    any
   >,
   Env extends { ACTOR_KIT_SECRET: string }
 >({
@@ -87,9 +72,9 @@ export const createMachineServer = <
 }: {
   machine: TMachine;
   schemas: {
-    client: z.ZodSchema<TClientEvent>;
-    service: z.ZodSchema<TServiceEvent>;
-    input: TInputSchema;
+    clientEvent: z.ZodSchema<TClientEvent>;
+    serviceEvent: z.ZodSchema<TServiceEvent>;
+    inputProps: TInputSchema;
   };
   options?: MachineServerOptions;
 }): new (
@@ -373,13 +358,15 @@ export const createMachineServer = <
 
       const { caller } = attachment;
       if (caller.type === "client") {
-        const clientEvent = schemas.client.parse(JSON.parse(message as string));
+        const clientEvent = schemas.clientEvent.parse(
+          JSON.parse(message as string)
+        );
         event = {
           ...clientEvent,
           caller,
         } as ClientEventFrom<TMachine>;
       } else if (caller.type === "service") {
-        const serviceEvent = schemas.client.parse(
+        const serviceEvent = schemas.clientEvent.parse(
           JSON.parse(message as string)
         );
         event = {

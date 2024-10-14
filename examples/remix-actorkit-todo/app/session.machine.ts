@@ -1,57 +1,63 @@
-import type { CreateMachineProps } from "actor-kit";
+import { ActorKitStateMachine } from "actor-kit";
 import { produce } from "immer";
 import { assign, setup } from "xstate";
-import type { SessionEvent } from "./session.types";
+import {
+  SessionEvent,
+  SessionInput,
+  SessionPrivateContext,
+  SessionPublicContext,
+  SessionServerContext,
+} from "./session.types";
 
-export const createSessionMachine = ({ id, caller }: CreateMachineProps) =>
-  setup({
-    types: {
-      context: {} as {
-        public: {
-          id: string;
-          userId: string;
-          listIds: string[];
-        };
-        private: Record<string, {}>;
+export const sessionMachine = setup({
+  types: {
+    context: {} as SessionServerContext,
+    events: {} as SessionEvent,
+    input: {} as SessionInput,
+  },
+  actions: {
+    addListId: assign({
+      public: ({ context, event }) => {
+        if (event.type === "NEW_LIST") {
+          return produce(context.public, (draft) => {
+            draft.listIds.push(event.listId);
+          });
+        }
+        return context.public;
       },
-      events: {} as SessionEvent,
+    }),
+  },
+  guards: {
+    isOwner: ({ context, event }) => {
+      return context.public.userId === event.caller.id;
     },
-    actions: {
-      addListId: assign({
-        public: ({ context, event }) =>
-          produce(context.public, (draft) => {
-            if (event.type === "NEW_LIST") {
-              draft.listIds.push(event.listId);
-            }
-          }),
-      }),
+  },
+}).createMachine({
+  id: "session",
+  initial: "idle",
+  context: ({ input }: { input: SessionInput }) => ({
+    public: {
+      id: input.id,
+      userId: input.caller.id,
+      listIds: [],
     },
-    guards: {
-      isSessionOwner: ({ context, event }) => {
-        return event.caller.id === context.public.userId;
-      },
-    },
-  }).createMachine({
-    id,
-    type: "parallel",
-    context: {
-      public: {
-        id,
-        userId: caller.id,
-        listIds: [],
-      },
-      private: {},
-    },
-    states: {
-      lists: {
-        on: {
-          NEW_LIST: {
-            actions: "addListId",
-            guard: "isSessionOwner",
-          },
+    private: {},
+  }),
+  states: {
+    idle: {
+      on: {
+        NEW_LIST: {
+          actions: "addListId",
+          guard: "isOwner",
         },
       },
     },
-  });
+  },
+}) satisfies ActorKitStateMachine<
+  SessionEvent,
+  SessionInput,
+  SessionPrivateContext,
+  SessionPublicContext
+>;
 
-export type SessionMachine = ReturnType<typeof createSessionMachine>;
+export type SessionMachine = typeof sessionMachine;

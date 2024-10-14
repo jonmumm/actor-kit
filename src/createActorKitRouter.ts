@@ -4,8 +4,8 @@ import {
 } from "@cloudflare/workers-types";
 import { AnyEventSchema } from "./schemas";
 import {
-  ActorKitStateMachine,
   AnyEvent,
+  BaseActorKitStateMachine,
   Caller,
   DurableObjectActor,
   EnvWithDurableObjects,
@@ -28,7 +28,7 @@ export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
     env: Env,
     key: T
   ):
-    | DurableObjectNamespace<DurableObjectActor<ActorKitStateMachine>>
+    | DurableObjectNamespace<DurableObjectActor<BaseActorKitStateMachine>>
     | undefined {
     const envKey = key.toUpperCase() as KebabToScreamingSnake<T> & keyof Env;
     const namespace = env[envKey];
@@ -39,7 +39,7 @@ export const createActorKitRouter = <Env extends EnvWithDurableObjects>(
       "idFromName" in namespace
     ) {
       return namespace as unknown as DurableObjectNamespace<
-        DurableObjectActor<ActorKitStateMachine>
+        DurableObjectActor<BaseActorKitStateMachine>
       >;
     }
     return undefined;

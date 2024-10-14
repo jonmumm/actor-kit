@@ -4,6 +4,8 @@ Actor Kit is a library for running state machines in Cloudflare Workers, leverag
 
 ## 📚 Table of Contents
 
+## 📚 Table of Contents
+
 - [💾 Installation](#-installation)
 - [🏗️ Architecture](#️-architecture)
 - [🌟 Key Concepts](#-key-concepts)
@@ -143,18 +145,47 @@ export const TodoServiceEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+export const TodoInputPropsSchema = z.object({
+  accessCount: z.number(),
+});
+
 // src/todo.types.ts
-import type { WithActorKitEvent, ActorKitSystemEvent } from "actor-kit";
+import type {
+  ActorKitSystemEvent,
+  WithActorKitEvent,
+  WithActorKitInput,
+} from "actor-kit";
 import { z } from "zod";
-import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+import {
+  TodoClientEventSchema,
+  TodoInputPropsSchema,
+  TodoServiceEventSchema,
+} from "./todo.schemas";
 
 export type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
 export type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
+export type TodoInputProps = z.infer<typeof TodoInputPropsSchema>;
+export type TodoInput = WithActorKitInput<TodoInputProps>;
 
 export type TodoEvent =
   | WithActorKitEvent<TodoClientEvent, "client">
   | WithActorKitEvent<TodoServiceEvent, "service">
   | ActorKitSystemEvent;
+
+export type TodoPublicContext = {
+  ownerId: string;
+  todos: Array<{ id: string; text: string; completed: boolean }>;
+  lastSync: number | null;
+};
+
+export type TodoPrivateContext = {
+  accessCount: number;
+};
+
+export type TodoServerContext = {
+  public: TodoPublicContext;
+  private: Record<string, TodoPrivateContext>;
+};
 ```
 
 ### 2️⃣ Define your state machine
@@ -163,65 +194,69 @@ Now that we have our event types defined, we can create our state machine:
 
 ```typescript
 // src/todo.machine.ts
-import type { CreateMachineProps } from "actor-kit";
+import { ActorKitStateMachine } from "actor-kit";
 import { assign, setup } from "xstate";
-import type { TodoEvent } from "./todo.types";
+import type {
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext,
+  TodoServerContext,
+} from "./todo.types";
 
-export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
-  setup({
-    types: {
-      context: {} as {
-        public: {
-          ownerId: string;
-          todos: Array<{ id: string; text: string; completed: boolean }>;
-          lastSync: number | null;
+export const todoMachine = setup({
+  types: {
+    context: {} as TodoServerContext,
+    events: {} as TodoEvent,
+    input: {} as TodoInput,
+  },
+  actions: {
+    addTodo: assign({
+      public: ({ context, event }) => {
+        if (event.type !== "ADD_TODO") return context.public;
+        return {
+          ...context.public,
+          todos: [
+            ...context.public.todos,
+            { id: crypto.randomUUID(), text: event.text, completed: false },
+          ],
+          lastSync: Date.now(),
         };
-        private: Record<string, { lastAccessTime?: number }>;
       },
-      events: {} as TodoEvent,
+    }),
+    // ... other actions ...
+  },
+  guards: {
+    // ... guards ...
+  },
+}).createMachine({
+  id: "todoList",
+  initial: "idle",
+  context: {
+    public: {
+      ownerId: caller.id,
+      todos: [],
+      lastSync: null,
     },
-    actions: {
-      addTodo: assign({
-        public: ({ context, event }) => {
-          if (event.type !== "ADD_TODO") return context.public;
-          return {
-            ...context.public,
-            todos: [
-              ...context.public.todos,
-              { id: crypto.randomUUID(), text: event.text, completed: false },
-            ],
-            lastSync: Date.now(),
-          };
+    private: {},
+  },
+  states: {
+    idle: {
+      on: {
+        ADD_TODO: {
+          actions: "addTodo",
         },
-      }),
-      // ... other actions ...
-    },
-    guards: {
-      // ... guards ...
-    },
-  }).createMachine({
-    id: "todoList",
-    initial: "idle",
-    context: {
-      public: {
-        ownerId: caller.id,
-        todos: [],
-        lastSync: null,
+        // ... other transitions ...
       },
-      private: {},
     },
-    states: {
-      idle: {
-        on: {
-          ADD_TODO: {
-            actions: "addTodo",
-          },
-          // ... other transitions ...
-        },
-      },
-      // ... other states ...
-    },
-  });
+    // ... other states ...
+  },
+}) satisfies ActorKitStateMachine<
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext
+>;
 ```
 
 ### 3️⃣ Set up the Actor Server
@@ -231,14 +266,19 @@ Create the Actor Server using the `createMachineServer` function:
 ```typescript
 // src/todo.server.ts
 import { createMachineServer } from "actor-kit/worker";
-import { createTodoListMachine } from "./todo.machine";
-import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoServiceEventSchema,
+  TodoInputPropsSchema,
+} from "./todo.schemas";
 
 export const Todo = createMachineServer({
-  createMachine: createTodoListMachine,
-  eventSchemas: {
-    client: TodoClientEventSchema,
-    service: TodoServiceEventSchema,
+  machine: todoMachine,
+  schemas: {
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
   },
   options: {
     persisted: true,
@@ -545,58 +585,162 @@ These examples showcase how to integrate Actor Kit with different frameworks, de
 
 ## 📖 API Reference
 
-### 🔧 `actor-kit/worker`
+You're absolutely right. Let's update the API reference section for `createMachineServer` to match the style of the rest of the documentation. Here's the revised version:
 
-#### `createMachineServer<TMachine, TEventSchemas, Env>({ createMachine, eventSchemas, options })`
+You're right, there are some discrepancies between the actual implementation and the documentation. Let's update the API reference for `createMachineServer` to accurately reflect the current implementation:
 
-Creates an actor server to run on a Cloudflare Worker.
+You're absolutely right. Let's update the example to properly implement the private and public context types instead of using `any`. Here's the revised version:
 
-- `TMachine`: Type parameter extending `ActorKitStateMachine`
-- `TEventSchemas`: Type parameter extending `EventSchemas`
-- `Env`: Type parameter extending `{ ACTOR_KIT_SECRET: string }`
 
-Parameters:
 
-- `createMachine`: Function that creates the state machine. It receives the following props:
-  ```typescript
-  {
-    id: string;
-    caller: Caller;
-  }
-  ```
-- `eventSchemas`: Object containing Zod schemas for different event types.
-  - `client`: Schema for events from clients
-  - `service`: Schema for events from services
-- `options`: (Optional) Additional options for the server.
-  - `persisted`: Whether to persist the actor state (default: false)
+You're absolutely right. Let's update the heading to include the types, following the style of the other documentation. Here's the revised version:
 
-Returns a class that extends `DurableObject` and implements `ActorServer<TMachine, TEventSchemas, Env>`.
+### 🔧 actor-kit/worker
+
+#### `createMachineServer<TClientEvent, TServiceEvent, TInputSchema, TMachine, Env>(props)`
+
+Creates a server instance of a state machine.
+
+```typescript
+function createMachineServer<
+  TClientEvent extends AnyEventObject,
+  TServiceEvent extends AnyEventObject,
+  TInputSchema extends z.ZodObject<z.ZodRawShape>,
+  TMachine extends ActorKitStateMachine<
+    | WithActorKitEvent<TClientEvent, "client">
+    | WithActorKitEvent<TServiceEvent, "service">
+    | ActorKitSystemEvent,
+    z.infer<TInputSchema> & { id: string; caller: Caller },
+    any,
+    any
+  >,
+  Env extends { ACTOR_KIT_SECRET: string }
+>({
+  machine,
+  schemas,
+  options,
+}: {
+  machine: TMachine;
+  schemas: {
+    clientEvent: z.ZodSchema<TClientEvent>;
+    serviceEvent: z.ZodSchema<TServiceEvent>;
+    inputProps: TInputSchema;
+  };
+  options?: MachineServerOptions;
+}): new (
+  state: DurableObjectState,
+  env: Env,
+  ctx: ExecutionContext
+) => ActorServer<TMachine>
+````
+
 
 Example usage:
 
-```typescript
+````typescript
 import { createMachineServer } from "actor-kit/worker";
+import { ActorKitStateMachine, WithActorKitEvent, WithActorKitInput, ActorKitSystemEvent } from "actor-kit";
+import { assign, setup } from "xstate";
 import { z } from "zod";
 
-const TodoServer = createMachineServer({
-  createMachine: ({ id, caller }) => createTodoMachine({ id, caller }),
-  eventSchemas: {
-    client: z.discriminatedUnion("type", [
-      z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
-      z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
-    ]),
-    service: z.discriminatedUnion("type", [
-      z.object({
-        type: z.literal("SYNC_TODOS"),
-        todos: z.array(
-          z.object({ id: z.string(), text: z.string(), completed: z.boolean() })
-        ),
+// Define schemas
+const TodoClientEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
+  z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
+  z.object({ type: z.literal("DELETE_TODO"), id: z.string() }),
+]);
+
+const TodoServiceEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("SYNC_TODOS"),
+    todos: z.array(z.object({ id: z.string(), text: z.string(), completed: z.boolean() })),
+  }),
+]);
+
+const TodoInputPropsSchema = z.object({
+  initialTodos: z.array(z.object({ id: z.string(), text: z.string(), completed: z.boolean() })).optional(),
+});
+
+// Infer types from schemas
+type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
+type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
+type TodoInputProps = z.infer<typeof TodoInputPropsSchema>;
+
+// Define combined event type
+type TodoEvent =
+  | WithActorKitEvent<TodoClientEvent, "client">
+  | WithActorKitEvent<TodoServiceEvent, "service">
+  | ActorKitSystemEvent;
+
+type TodoInput = WithActorKitInput<TodoInputProps>;
+
+type TodoPublicContext = {
+  ownerId: string;
+  todos: Array<{ id: string; text: string; completed: boolean }>;
+  lastSync: number | null;
+};
+
+type TodoPrivateContext = {
+  lastAccessTime: number;
+};
+
+type TodoContext = {
+  public: TodoPublicContext;
+  private: Record<string, TodoPrivateContext>;
+};
+
+// Define the machine
+const todoMachine = setup({
+  types: {} as {
+    context: TodoContext;
+    events: TodoEvent;
+    input: TodoInput;
+  },
+  actions: {
+    addTodo: assign({
+      public: ({ context, event }) => ({
+        ...context.public,
+        todos: event.type === "ADD_TODO" 
+          ? [...context.public.todos, { id: crypto.randomUUID(), text: event.text, completed: false }]
+          : context.public.todos,
+        lastSync: Date.now(),
       }),
-    ]),
+    }),
+    // ... other actions
+  },
+  guards: {
+    isOwner: ({ context, event }) => event.caller.id === context.public.ownerId,
+  },
+}).createMachine({
+  id: "todo",
+  context: ({ input }) => ({
+    public: {
+      ownerId: input.caller.id,
+      todos: input.initialTodos || [],
+      lastSync: null,
+    },
+    private: {},
+  }),
+  on: {
+    ADD_TODO: { actions: ["addTodo"], guard: "isOwner" },
+    // ... other event handlers
+  },
+}) satisfies ActorKitStateMachine<TodoEvent, TodoInput, TodoPrivateContext, TodoPublicContext>;
+
+// Create the machine server
+const Todo = createMachineServer({
+  machine: todoMachine,
+  schemas: {
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
   },
   options: { persisted: true },
 });
-```
+
+export type TodoServer = InstanceType<typeof Todo>;
+export default Todo;
+````
 
 #### `createActorKitRouter<Env>(routes)`
 
@@ -609,7 +753,7 @@ Returns a function `(request: Request, env: Env, ctx: ExecutionContext) => Promi
 
 Example usage:
 
-```typescript
+`````typescript
 import { createActorKitRouter } from "actor-kit/worker";
 
 const actorKitRouter = createActorKitRouter(["todo", "chat"]);
@@ -623,7 +767,7 @@ export default {
     return actorKitRouter(request, env, ctx);
   },
 };
-```
+`````
 
 ### 🖥️ `actor-kit/server`
 
@@ -740,6 +884,7 @@ const client = createActorKitClient<TodoMachine>({
 await client.connect();
 client.send({ type: "ADD_TODO", text: "Buy milk" });
 ```
+
 Certainly! Here's the complete `actor-kit/react` section again:
 
 ### ⚛️ `actor-kit/react`
@@ -823,9 +968,7 @@ function TodoActions() {
     client.send({ type: "CLEAR_COMPLETED" });
   };
 
-  return (
-    <button onClick={handleClearCompleted}>Clear Completed</button>
-  );
+  return <button onClick={handleClearCompleted}>Clear Completed</button>;
 }
 ```
 
@@ -837,8 +980,8 @@ Example usage:
 
 ```tsx
 function CompletedTodosCount() {
-  const completedCount = TodoActorKitContext.useSelector((state) => 
-    state.public.todos.filter(todo => todo.completed).length
+  const completedCount = TodoActorKitContext.useSelector(
+    (state) => state.public.todos.filter((todo) => todo.completed).length
   );
 
   return <span>Completed todos: {completedCount}</span>;
@@ -897,6 +1040,7 @@ function LoadingIndicator() {
 The `Matches` component allows for conditional rendering based on the current state of the actor machine.
 
 Props:
+
 - `state: StateValueFrom<TMachine>`: The state value to match against
 - `and?: StateValueFrom<TMachine>`: Optional additional state to match (AND condition)
 - `or?: StateValueFrom<TMachine>`: Optional alternative state to match (OR condition)
@@ -924,7 +1068,9 @@ function TodoList() {
           {todos.map((todo) => (
             <li key={todo.id}>
               {todo.text}
-              <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+              <button
+                onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}
+              >
                 Toggle
               </button>
             </li>
@@ -956,7 +1102,9 @@ function TodoList() {
           {todos.map((todo) => (
             <li key={todo.id}>
               {todo.text}
-              <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+              <button
+                onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}
+              >
                 Toggle
               </button>
             </li>
@@ -981,7 +1129,7 @@ Actor Kit includes several system events that are automatically handled by the s
 The `ActorKitSystemEvent` type is defined as follows:
 
 ```typescript
-export type ActorKitSystemEvent = 
+export type ActorKitSystemEvent =
   | { type: "INITIALIZE"; caller: { type: "system" id: string } }
   | { type: "CONNECT"; caller: { type: "system"; id: string }; clientId: string }
   | { type: "DISCONNECT"; caller: { type: "system"; id: string }; clientId: string }
@@ -1114,10 +1262,47 @@ function TodoList({ snapshot }: { snapshot: TodoSnapshot }) {
 }
 ```
 
+#### `ActorKitStateMachine`
+
+Represents the structure of an Actor Kit state machine.
+
+```typescript
+type ActorKitStateMachine<
+  TEvent extends BaseActorKitEvent & EventObject,
+  TInput extends { id: string; caller: Caller },
+  TPrivateProps extends { [key: string]: unknown },
+  TPublicProps extends { [key: string]: unknown }
+> = StateMachine<...>
+```
+
+Example usage:
+
+```typescript
+import { ActorKitStateMachine } from "actor-kit";
+import { setup } from "xstate";
+import type {
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext,
+} from "./todo.types";
+
+export const todoMachine = setup({
+  // ... machine setup
+}).createMachine({
+  // ... machine definition
+}) satisfies ActorKitStateMachine<
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext
+>;
+```
+
 ### Other Types
 
-- `ActorKitStateMachine`: Type definition for an Actor Kit state machine, extending XState's `StateMachine` type.
-- `ClientEventFrom<TMachine>`: Utility type to extract client events from an Actor Kit state machine.
+- `ClientEventFrom<TMachine extends AnyActorKitStateMachine>`: Utility type to extract client events from an Actor Kit state machine.
+- `ServiceEventFrom<TMachine extends AnyActorKitStateMachine>`: Utility type to extract service events from an Actor Kit state machine.
 
 By including these types in your Actor Kit implementation, you ensure type safety and proper handling of events and state across your application.
 
