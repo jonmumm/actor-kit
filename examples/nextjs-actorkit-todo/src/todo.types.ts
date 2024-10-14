@@ -18,4 +18,24 @@ export type TodoEvent =
   | WithActorKitEvent<TodoClientEvent, "client">
   | WithActorKitEvent<TodoServiceEvent, "service">
   | ActorKitSystemEvent;
+
 export type TodoInput = WithActorKitInput<TodoInputProps>;
+
+export type TodoPrivateContext = {
+  lastAccessTime?: number;
+  userPreferences?: {
+    theme: "light" | "dark";
+    sortOrder: "asc" | "desc";
+  };
+};
+
+export type TodoPublicContext = {
+  ownerId: string;
+  todos: Array<{ id: string; text: string; completed: boolean }>;
+  lastSync: number | null;
+};
+
+export type TodoServerContext = {
+  public: TodoPublicContext;
+  private: Record<string, TodoPrivateContext>;
+};
