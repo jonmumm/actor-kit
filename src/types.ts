@@ -245,7 +245,7 @@ export type ScreamingSnakeToKebab<S extends string> =
     ? `${Lowercase<T>}-${ScreamingSnakeToKebab<U>}`
     : Lowercase<S>;
 
-export type DurableObjectActor<TMachine extends BaseActorKitStateMachine> =
+export type DurableObjectActor<TMachine extends AnyActorKitStateMachine> =
   ActorServer<TMachine>;
 
 type CamelToSnakeCase<S extends string> = S extends `${infer T}${infer U}`
@@ -261,7 +261,7 @@ type KebabToCamelCase<S extends string> = S extends `${infer T}-${infer U}`
 export type KebabToScreamingSnake<S extends string> = Uppercase<
   CamelToSnakeCase<KebabToCamelCase<S>>
 >;
-export interface MatchesProps<TMachine extends BaseActorKitStateMachine> {
+export interface MatchesProps<TMachine extends AnyActorKitStateMachine> {
   state: StateValueFrom<TMachine>;
   and?: StateValueFrom<TMachine>;
   or?: StateValueFrom<TMachine>;
