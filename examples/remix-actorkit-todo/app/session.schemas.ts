@@ -9,3 +9,7 @@ export const SessionServiceEventSchema = z.discriminatedUnion("type", [
     type: z.literal("SYNC_LISTS"),
   }),
 ]);
+
+export const SessionInputPropsSchema = z.object({
+  foo: z.string(),
+});

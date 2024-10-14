@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import { ReactNode } from "react";
 import type {
   AnyStateMachine,
   SnapshotFrom,
@@ -17,7 +16,7 @@ import type {
 
 export type EnvWithDurableObjects = {
   ACTOR_KIT_SECRET: string;
-  [key: string]: DurableObjectNamespace<ActorServer<any, any, any>> | unknown;
+  [key: string]: DurableObjectNamespace<ActorServer<any>> | unknown;
 };
 
 export type AnyEvent = z.infer<typeof AnyEventSchema>;
@@ -38,12 +37,9 @@ export interface ActorServerMethods<TMachine extends ActorKitStateMachine> {
   };
 }
 
-export type ActorServer<
-  TMachine extends ActorKitStateMachine,
-  TEventSchemas extends EventSchemas,
-  Env
-> = DurableObject & ActorServerMethods<TMachine>;
-export type AnyActorServer = ActorServer<any, any, any>;
+export type ActorServer<TMachine extends ActorKitStateMachine> = DurableObject &
+  ActorServerMethods<TMachine>;
+export type AnyActorServer = ActorServer<any>;
 
 export type Caller = z.infer<typeof CallerSchema>;
 export type RequestInfo = z.infer<typeof RequestInfoSchema>;
@@ -58,14 +54,41 @@ export type CreateMachineProps = WithIdAndCallerInput;
 
 export type CallerType = "client" | "system" | "service";
 
-export type EventSchemas = {
-  client:
-    | z.ZodDiscriminatedUnion<"type", [z.ZodObject<any>, ...z.ZodObject<any>[]]>
-    | z.ZodObject<z.ZodRawShape & { type: z.ZodLiteral<string> }>;
-  service:
-    | z.ZodDiscriminatedUnion<"type", [z.ZodObject<any>, ...z.ZodObject<any>[]]>
-    | z.ZodObject<z.ZodRawShape & { type: z.ZodLiteral<string> }>;
+type EventObject = {
+  type: string;
+  [key: string]: unknown;
 };
+
+type EventSchemaUnion = z.ZodDiscriminatedUnion<
+  "type",
+  [
+    z.ZodObject<z.ZodRawShape & { type: z.ZodString }>,
+    ...z.ZodObject<z.ZodRawShape & { type: z.ZodString }>[]
+  ]
+>;
+
+export type EventSchemas = {
+  client: EventSchemaUnion;
+  service: EventSchemaUnion;
+};
+
+// Helper type to ensure that all events in EventSchemas have a 'type' property
+type EnsureEventHasType<T extends EventSchemas> = {
+  [K in keyof T]: T[K] extends z.ZodDiscriminatedUnion<"type", infer Schemas>
+    ? z.ZodDiscriminatedUnion<
+        "type",
+        Schemas extends [z.ZodObject<any>, ...z.ZodObject<any>[]]
+          ? [
+              z.ZodObject<z.ZodRawShape & { type: z.ZodString }>,
+              ...z.ZodObject<z.ZodRawShape & { type: z.ZodString }>[]
+            ]
+          : never
+      >
+    : never;
+};
+
+// Use this type when defining EventSchemas to ensure type safety
+export type SafeEventSchemas = EnsureEventHasType<EventSchemas>;
 
 export type EventWithCaller = {
   type: string;
@@ -117,6 +140,9 @@ export type WithActorKitEvent<
   T extends { type: string },
   C extends CallerType
 > = T & BaseActorKitEvent & { caller: { type: C } };
+
+export type WithActorKitInput<T extends { [key: string]: unknown }> = T &
+  BaseActorKitEvent & { caller: Caller; id: string };
 
 export type CallerSnapshotFrom<TMachine extends AnyStateMachine> = {
   public: SnapshotFrom<TMachine> extends { context: { public: infer P } }
@@ -181,7 +207,7 @@ export type ScreamingSnakeToKebab<S extends string> =
     : Lowercase<S>;
 
 export type DurableObjectActor<TMachine extends ActorKitStateMachine> =
-  ActorServer<TMachine, any, any>;
+  ActorServer<TMachine>;
 
 type CamelToSnakeCase<S extends string> = S extends `${infer T}${infer U}`
   ? U extends Uncapitalize<U>
