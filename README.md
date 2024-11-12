@@ -1728,6 +1728,240 @@ export const MultipleActors: Story = {
 };
 ```
 
+## Testing Event Payloads
+
+You can use the `onSend` callback with the mock client to verify that components are sending events with the correct payloads.
+
+### Basic Event Spy Example
+
+```typescript
+import type { Meta, StoryObj } from "@storybook/react";
+import { expect, fn } from "@storybook/test";
+import { createActorKitMockClient } from "actor-kit/test";
+import { GameContext } from "./game.context";
+import type { GameMachine } from "./game.machine";
+
+export const JoinGame: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const sendSpy = fn();
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: {
+          players: [],
+          gameStatus: "lobby"
+        },
+        private: {},
+        value: "lobby"
+      },
+      onSend: sendSpy
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <JoinGameForm />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Find and fill the name input
+    const nameInput = await canvas.findByLabelText("Player Name");
+    await userEvent.type(nameInput, "Test Player");
+
+    // Click the join button
+    const joinButton = await canvas.findByText("Join Game");
+    await userEvent.click(joinButton);
+
+    // Verify the JOIN_GAME event was sent with correct payload
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: "JOIN_GAME",
+      playerName: "Test Player"
+    });
+  }
+};
+```
+
+### Testing Multiple Events in Sequence
+
+```typescript
+export const GameRound: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const sendSpy = fn();
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: {
+          players: [
+            { id: "player-1", name: "Player 1", score: 0 },
+            { id: "player-2", name: "Player 2", score: 0 }
+          ],
+          currentQuestion: {
+            text: "What is 2 + 2?",
+            answer: "4"
+          },
+          gameStatus: "active"
+        },
+        private: {},
+        value: { active: "questionActive" }
+      },
+      onSend: sendSpy
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <GameView />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Test buzzing in
+    const buzzerButton = await canvas.findByText("Buzz In");
+    await userEvent.click(buzzerButton);
+
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: "BUZZ_IN",
+      playerId: "player-1"
+    });
+
+    // Test submitting an answer
+    const answerInput = await canvas.findByLabelText("Your Answer");
+    await userEvent.type(answerInput, "4");
+    
+    const submitButton = await canvas.findByText("Submit Answer");
+    await userEvent.click(submitButton);
+
+    // Verify events were sent in order with correct payloads
+    expect(sendSpy.mock.calls).toEqual([
+      [{ type: "BUZZ_IN", playerId: "player-1" }],
+      [{ type: "SUBMIT_ANSWER", answer: "4" }]
+    ]);
+  }
+};
+```
+
+### Testing Complex Event Payloads
+
+```typescript
+export const GameConfiguration: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const sendSpy = fn();
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: {
+          gameStatus: "setup",
+          config: {
+            maxPlayers: 4,
+            timeLimit: 30,
+            categories: []
+          }
+        },
+        private: {},
+        value: "setup"
+      },
+      onSend: sendSpy
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <GameConfigForm />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Fill out configuration form
+    await userEvent.selectOptions(
+      await canvas.findByLabelText("Max Players"),
+      "6"
+    );
+    
+    await userEvent.selectOptions(
+      await canvas.findByLabelText("Time Limit"),
+      "60"
+    );
+
+    const categoryCheckboxes = await canvas.findAllByRole("checkbox");
+    await userEvent.click(categoryCheckboxes[0]); // Select "History"
+    await userEvent.click(categoryCheckboxes[2]); // Select "Science"
+
+    const saveButton = await canvas.findByText("Save Configuration");
+    await userEvent.click(saveButton);
+
+    // Verify the UPDATE_CONFIG event was sent with the exact payload structure
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: "UPDATE_CONFIG",
+      config: {
+        maxPlayers: 6,
+        timeLimit: 60,
+        categories: ["history", "science"]
+      }
+    });
+
+    // You can also use partial matching for complex objects
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "UPDATE_CONFIG",
+        config: expect.objectContaining({
+          maxPlayers: 6,
+          categories: expect.arrayContaining(["history", "science"])
+        })
+      })
+    );
+  }
+};
+```
+
+### Testing Event Properties with Custom Matchers
+
+```typescript
+export const ChatMessage: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const sendSpy = fn();
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: {
+          messages: [],
+          gameStatus: "active"
+        },
+        private: {},
+        value: "active"
+      },
+      onSend: sendSpy
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <ChatBox />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Send a chat message
+    const messageInput = await canvas.findByLabelText("Message");
+    await userEvent.type(messageInput, "Hello, world!");
+    
+    const sendButton = await canvas.findByText("Send");
+    await userEvent.click(sendButton);
+
+    // Verify the SEND_MESSAGE event with timestamp
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: "SEND_MESSAGE",
+      text: "Hello, world!",
+      timestamp: expect.any(Number),
+      sender: expect.objectContaining({
+        id: expect.any(String),
+        name: expect.any(String)
+      })
+    });
+
+    // You can also create custom matchers for common patterns
+    const isValidMessage = (event: any) => {
+      return (
+        event.type === "SEND_MESSAGE" &&
+        typeof event.text === "string" &&
+        typeof event.timestamp === "number" &&
+        Date.now() - event.timestamp < 1000 // Message was sent within last second
+      );
+    };
+
+    expect(sendSpy).toHaveBeenCalledWith(expect.custom(isValidMessage));
+  }
+};
+```
+
 ### Step-by-Step Testing
 
 Use the `step` function to organize your tests:
