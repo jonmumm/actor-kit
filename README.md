@@ -30,7 +30,6 @@ Actor Kit is a library for running state machines in Cloudflare Workers, leverag
 - [🔑 TypeScript Types](#-typescript-types)
 - [👥 Caller Types](#-caller-types)
 - [🔐 Public and Private Data](#-public-and-private-data)
-- [🧪 Testing Utilities](#-testing-utilities)
 - [📚 Storybook Integration](#-storybook-integration)
 - [📜 License](#-license)
 - [🔗 Related Technologies and Inspiration](#-related-technologies-and-inspiration)
