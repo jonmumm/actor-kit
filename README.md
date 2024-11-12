@@ -21,14 +21,17 @@ Actor Kit is a library for running state machines in Cloudflare Workers, leverag
   - [⚛️ Next.js](/examples/nextjs-actorkit-todo/README.md)
   - [🎸 Remix](/examples/remix-actorkit-todo/README.md)
 - [📖 API Reference](#-api-reference)
-  - [🔧 actor-kit/worker](#-actor-kitworker)
-  - [🖥️ actor-kit/server](#️-actor-kitserver)
-  - [🌐 actor-kit/browser](#-actor-kitbrowser)
-  - [⚛️ actor-kit/react](#️-actor-kitreact)
+  - [🔧 actor-kit/worker](#🔧-actor-kit-worker)
+  - [🖥️ actor-kit/server](#🖥️-actor-kit-server)
+  - [🌐 actor-kit/browser](#🌐-actor-kit-browser)
+  - [⚛️ actor-kit/react](#⚛️-actor-kit-react)
+  - [🧪 actor-kit/test](#🧪-actor-kit-test)
+  - [📚 actor-kit/storybook](#📚-actor-kit-storybook)
 - [🔑 TypeScript Types](#-typescript-types)
 - [👥 Caller Types](#-caller-types)
 - [🔐 Public and Private Data](#-public-and-private-data)
 - [🧪 Testing Utilities](#-testing-utilities)
+- [📚 Storybook Integration](#-storybook-integration)
 - [📜 License](#-license)
 - [🔗 Related Technologies and Inspiration](#-related-technologies-and-inspiration)
 - [🚧 Development Status](#-development-status)
@@ -1072,7 +1075,7 @@ Props:
 
 Example usage:
 
-```tsx
+````tsx
 function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
   const send = TodoActorKitContext.useSend();
@@ -1102,11 +1105,11 @@ function TodoList() {
     </div>
   );
 }
-```
+````
 
 You can also use the `Matches` component with more complex conditions:
 
-```tsx
+````tsx
 function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
   const send = TodoActorKitContext.useSend();
@@ -1136,7 +1139,125 @@ function TodoList() {
     </div>
   );
 }
-```
+````
+
+### 🧪 actor-kit/test
+
+#### `createActorKitMockClient<TMachine>(props: ActorKitMockClientProps<TMachine>)`
+
+Creates a mock client for testing Actor Kit state machines without needing a live server.
+
+Parameters:
+- `initialSnapshot`: Initial state snapshot for the mock client
+- `onSend?`: Optional callback function invoked whenever an event is sent
+
+Returns a mock client that implements the standard `ActorKitClient` interface plus additional testing utilities:
+- All standard client methods (send, subscribe, etc.)
+- `produce(recipe: (draft: Draft<CallerSnapshotFrom<TMachine>>) => void)`: Method for directly manipulating state using Immer
+
+Example usage:
+
+````typescript
+import { createActorKitMockClient } from 'actor-kit/test';
+import type { TodoMachine } from './todo.machine';
+
+describe('Todo State Management', () => {
+  it('should handle state transitions', () => {
+    const mockClient = createActorKitMockClient<TodoMachine>({
+      initialSnapshot: {
+        public: { 
+          todos: [],
+          status: 'idle'
+        },
+        private: {},
+        value: 'idle'
+      }
+    });
+
+    // Use Immer's produce to update state
+    mockClient.produce((draft) => {
+      draft.public.todos.push({
+        id: '1',
+        text: 'Test todo',
+        completed: false
+      });
+    });
+
+    expect(mockClient.getState().public.todos).toHaveLength(1);
+  });
+
+  it('should track sent events', () => {
+    const sendSpy = vi.fn();
+    const mockClient = createActorKitMockClient<TodoMachine>({
+      initialSnapshot: { /* ... */ },
+      onSend: sendSpy
+    });
+
+    mockClient.send({ type: 'ADD_TODO', text: 'Test todo' });
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: 'ADD_TODO',
+      text: 'Test todo'
+    });
+  });
+});
+````
+
+### 📚 actor-kit/storybook
+
+#### `withActorKit<TMachine>({ actorType, context })`
+
+Creates a Storybook decorator for testing components that depend on Actor Kit state.
+
+Parameters:
+- `actorType`: String identifier for the actor type
+- `context`: The Actor Kit context created by `createActorKitContext`
+
+Returns a Storybook decorator function.
+
+Example usage:
+
+````typescript
+import { withActorKit } from 'actor-kit/storybook';
+import { GameContext } from './game.context';
+import type { GameMachine } from './game.machine';
+
+const meta = {
+  title: 'Components/GameView',
+  component: GameView,
+  decorators: [
+    withActorKit<GameMachine>({
+      actorType: "game",
+      context: GameContext,
+    }),
+  ],
+};
+````
+
+#### `StoryWithActorKit<TMachine>`
+
+A utility type for stories that use Actor Kit state machines. It combines the standard Storybook story type with Actor Kit parameters.
+
+Example usage:
+
+````typescript
+import type { StoryWithActorKit } from 'actor-kit/storybook';
+import type { GameMachine } from './game.machine';
+
+export const GameStory: StoryWithActorKit<GameMachine> = {
+  parameters: {
+    actorKit: {
+      game: {
+        "game-123": {
+          public: { /* initial state */ },
+          private: {},
+          value: "idle"
+        }
+      }
+    }
+  }
+}
+````
+
 
 ### System Events
 
@@ -1499,6 +1620,187 @@ By including these types in your Actor Kit implementation, you ensure type safet
 ## 🔐 Public and Private Data
 
 Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information securely.
+
+## 📚 Storybook Integration
+
+Actor Kit provides seamless integration with Storybook through the `withActorKit` decorator, allowing you to easily test and develop components that depend on actor state.
+
+### Basic Usage
+
+```typescript
+import { withActorKit } from 'actor-kit/storybook';
+import { GameContext } from './game.context';
+import type { GameMachine } from './game.machine';
+
+const meta = {
+  title: 'Components/GameView',
+  component: GameView,
+  decorators: [
+    withActorKit<GameMachine>({
+      actorType: "game",
+      context: GameContext,
+    }),
+  ],
+};
+
+export default meta;
+type Story = StoryObj<typeof GameView>;
+
+export const Default: Story = {
+  parameters: {
+    actorKit: {
+      game: {
+        "game-123": {
+          public: {
+            players: [],
+            gameStatus: "idle"
+          },
+          private: {},
+          value: "idle"
+        }
+      }
+    }
+  }
+};
+```
+
+### Testing Patterns
+
+There are two main patterns for testing with Actor Kit in Storybook:
+
+#### 1. Static Stories (Using parameters.actorKit)
+
+Best for simple stories that don't need state manipulation:
+
+```typescript
+export const Static: Story = {
+  parameters: {
+    actorKit: {
+      game: {
+        "game-123": {
+          public: { /* initial state */ },
+          private: {},
+          value: "idle"
+        }
+      }
+    }
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // Test UI state...
+  }
+};
+```
+
+#### 2. Interactive Stories (Using mount + direct client)
+
+Better for stories that need to manipulate state:
+
+```typescript
+export const Interactive: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: { /* initial state */ },
+        private: {},
+        value: "idle"
+      }
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <GameView />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Now you can manipulate state
+    client.produce((draft) => {
+      draft.public.players.push({
+        id: "player-1",
+        name: "Player 1"
+      });
+    });
+  }
+};
+```
+
+### Multiple Actors
+
+You can use multiple actors in a single story:
+
+```typescript
+const meta = {
+  decorators: [
+    withActorKit<SessionMachine>({
+      actorType: "session",
+      context: SessionContext,
+    }),
+    withActorKit<GameMachine>({
+      actorType: "game",
+      context: GameContext,
+    }),
+  ],
+};
+
+export const MultipleActors: Story = {
+  parameters: {
+    actorKit: {
+      session: {
+        "session-123": {
+          public: { /* session state */ },
+          private: {},
+          value: "ready"
+        }
+      },
+      game: {
+        "game-123": {
+          public: { /* game state */ },
+          private: {},
+          value: "active"
+        }
+      }
+    }
+  }
+};
+```
+
+### Step-by-Step Testing
+
+Use the `step` function to organize your tests:
+
+```typescript
+export const GameFlow: Story = {
+  play: async ({ canvas, mount, step }) => {
+    await step('Mount component with initial state', async () => {
+      await mount(<GameView />);
+    });
+
+    await step('Verify initial elements', async () => {
+      const title = await canvas.findByText(/game lobby/i);
+      expect(title).toBeInTheDocument();
+    });
+
+    await step('Simulate player joining', async () => {
+      const client = createActorKitMockClient<GameMachine>({/*...*/});
+      client.produce((draft) => {
+        draft.public.players.push({
+          id: "player-1",
+          name: "Player 1"
+        });
+      });
+
+      const playerName = await canvas.findByText("Player 1");
+      expect(playerName).toBeInTheDocument();
+    });
+  }
+};
+```
+
+The Storybook integration makes it easy to:
+- Test components in different states
+- Verify UI updates in response to state changes
+- Test complex interactions and state transitions
+- Document component behavior with interactive examples
 
 ## 📜 License
 

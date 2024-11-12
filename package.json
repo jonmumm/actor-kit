@@ -1,6 +1,6 @@
 {
   "name": "actor-kit",
-  "version": "0.41.0",
+  "version": "0.42.0",
   "main": "./src/index.ts",
   "module": "./src/index.ts",
   "types": "./src/index.ts",
@@ -20,6 +20,10 @@
     "./react": {
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"
+    },
+    "./storybook": {
+      "types": "./src/storybook.ts",
+      "import": "./src/storybook.ts"
     },
     "./test": {
       "types": "./src/test.ts",
@@ -63,6 +67,7 @@
     "@cloudflare/workers-types": "^4.20240925.0",
     "@rollup/plugin-alias": "^5.1.1",
     "@rollup/plugin-terser": "^0.4.4",
+    "@storybook/react": "^8.4.2",
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.9",
     "@types/use-sync-external-store": "^0.0.6",
