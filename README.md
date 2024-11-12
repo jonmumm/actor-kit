@@ -589,177 +589,141 @@ These examples showcase how to integrate Actor Kit with different frameworks, de
 
 ### 🔧 actor-kit/worker
 
+The `actor-kit/worker` package provides the core functionality for running state machines in Cloudflare Workers. It includes utilities for creating machine servers and routing requests.
+
 #### `createMachineServer<TClientEvent, TServiceEvent, TInputSchema, TMachine, Env>(props)`
 
-Creates a server instance of a state machine.
+Creates a server instance of a state machine that runs in a Cloudflare Worker Durable Object.
 
-```typescript
-function createMachineServer<
-  TClientEvent extends AnyEventObject,
-  TServiceEvent extends AnyEventObject,
-  TInputSchema extends z.ZodObject<z.ZodRawShape>,
-  TMachine extends ActorKitStateMachine<
-    | WithActorKitEvent<TClientEvent, "client">
-    | WithActorKitEvent<TServiceEvent, "service">
-    | ActorKitSystemEvent,
-    z.infer<TInputSchema> & { id: string; caller: Caller },
-    any,
-    any
-  >,
-  Env extends { ACTOR_KIT_SECRET: string }
->({
-  machine,
-  schemas,
-  options,
-}: {
-  machine: TMachine;
-  schemas: {
-    clientEvent: z.ZodSchema<TClientEvent>;
-    serviceEvent: z.ZodSchema<TServiceEvent>;
-    inputProps: TInputSchema;
-  };
-  options?: MachineServerOptions;
-}): new (
-  state: DurableObjectState,
-  env: Env,
-  ctx: ExecutionContext
-) => ActorServer<TMachine>
-````
-
+Parameters:
+- `machine`: The XState machine to run on the server
+- `schemas`: Zod schemas for validating events and input
+  - `clientEvent`: Schema for events from clients
+  - `serviceEvent`: Schema for events from trusted services
+  - `inputProps`: Schema for initialization props
+- `options`: Configuration options
+  - `persisted`: Whether to persist state to storage (default: false)
 
 Example usage:
 
-````typescript
+```typescript
+// src/todo.server.ts
 import { createMachineServer } from "actor-kit/worker";
-import { ActorKitStateMachine, WithActorKitEvent, WithActorKitInput, ActorKitSystemEvent } from "actor-kit";
-import { assign, setup } from "xstate";
-import { z } from "zod";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoInputPropsSchema,
+  TodoServiceEventSchema,
+} from "./todo.schemas";
 
-// Define schemas
-const TodoClientEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
-  z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
-  z.object({ type: z.literal("DELETE_TODO"), id: z.string() }),
-]);
-
-const TodoServiceEventSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("SYNC_TODOS"),
-    todos: z.array(z.object({ id: z.string(), text: z.string(), completed: z.boolean() })),
-  }),
-]);
-
-const TodoInputPropsSchema = z.object({
-  initialTodos: z.array(z.object({ id: z.string(), text: z.string(), completed: z.boolean() })).optional(),
-});
-
-// Infer types from schemas
-type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
-type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
-type TodoInputProps = z.infer<typeof TodoInputPropsSchema>;
-
-// Define combined event type
-type TodoEvent =
-  | WithActorKitEvent<TodoClientEvent, "client">
-  | WithActorKitEvent<TodoServiceEvent, "service">
-  | ActorKitSystemEvent;
-
-type TodoInput = WithActorKitInput<TodoInputProps>;
-
-type TodoPublicContext = {
-  ownerId: string;
-  todos: Array<{ id: string; text: string; completed: boolean }>;
-  lastSync: number | null;
-};
-
-type TodoPrivateContext = {
-  lastAccessTime: number;
-};
-
-type TodoContext = {
-  public: TodoPublicContext;
-  private: Record<string, TodoPrivateContext>;
-};
-
-// Define the machine
-const todoMachine = setup({
-  types: {} as {
-    context: TodoContext;
-    events: TodoEvent;
-    input: TodoInput;
-  },
-  actions: {
-    addTodo: assign({
-      public: ({ context, event }) => ({
-        ...context.public,
-        todos: event.type === "ADD_TODO" 
-          ? [...context.public.todos, { id: crypto.randomUUID(), text: event.text, completed: false }]
-          : context.public.todos,
-        lastSync: Date.now(),
-      }),
-    }),
-    // ... other actions
-  },
-  guards: {
-    isOwner: ({ context, event }) => event.caller.id === context.public.ownerId,
-  },
-}).createMachine({
-  id: "todo",
-  context: ({ input }) => ({
-    public: {
-      ownerId: input.caller.id,
-      todos: input.initialTodos || [],
-      lastSync: null,
-    },
-    private: {},
-  }),
-  on: {
-    ADD_TODO: { actions: ["addTodo"], guard: "isOwner" },
-    // ... other event handlers
-  },
-}) satisfies ActorKitStateMachine<TodoEvent, TodoInput, TodoPrivateContext, TodoPublicContext>;
-
-// Create the machine server
-const Todo = createMachineServer({
+export const Todo = createMachineServer({
   machine: todoMachine,
   schemas: {
     clientEvent: TodoClientEventSchema,
     serviceEvent: TodoServiceEventSchema,
     inputProps: TodoInputPropsSchema,
   },
-  options: { persisted: true },
+  options: {
+    persisted: true,
+  },
 });
 
 export type TodoServer = InstanceType<typeof Todo>;
 export default Todo;
-````
+```
+
+Then set up your Cloudflare Worker to use the server:
+
+```typescript
+// src/server.ts
+import { DurableObjectNamespace } from "@cloudflare/workers-types";
+import { AnyActorServer } from "actor-kit";
+import { createActorKitRouter } from "actor-kit/worker";
+import { WorkerEntrypoint } from "cloudflare:workers";
+import { Todo, TodoServer } from "./todo.server";
+
+// Define environment interface with your Durable Object bindings
+interface Env {
+  TODO: DurableObjectNamespace<TodoServer>;
+  ACTOR_KIT_SECRET: string;
+  [key: string]: DurableObjectNamespace<AnyActorServer> | unknown;
+}
+
+// Create router with your actor types
+const router = createActorKitRouter<Env>(["todo"]);
+
+// Export your Durable Object class
+export { Todo };
+
+// Create your Worker
+export default class Worker extends WorkerEntrypoint<Env> {
+  fetch(request: Request): Promise<Response> | Response {
+    if (request.url.includes("/api/")) {
+      return router(request, this.env, this.ctx);
+    }
+
+    return new Response("API powered by ActorKit");
+  }
+}
+```
+
+Configure your `wrangler.toml`:
+
+```toml
+name = "your-project"
+main = "src/server.ts"
+compatibility_date = "2024-09-25"
+
+[vars]
+ACTOR_KIT_SECRET = "your-secret-key"
+
+[[durable_objects.bindings]]
+name = "TODO"
+class_name = "Todo"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Todo"]
+```
+
+The key components are:
+1. Create your machine server with `createMachineServer`
+2. Set up your Worker environment interface with Durable Object bindings
+3. Create a router with your actor types
+4. Export your Durable Object class
+5. Create your Worker class that uses the router
+6. Configure wrangler.toml with your Durable Object bindings
 
 #### `createActorKitRouter<Env>(routes)`
 
 Creates a router for handling Actor Kit requests in a Cloudflare Worker.
 
-- `Env: Type parameter extending `EnvWithDurableObjects`
-- `routes`: An array of actor types (as kebab-case strings)
+Parameters:
+- `routes`: Array of actor type strings (e.g., `["todo", "game"]`)
+- `Env`: Type parameter for your Worker's environment bindings
 
-Returns a function `(request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>` that handles Actor Kit routing.
+Returns a function that handles HTTP requests and routes them to the appropriate actor.
 
 Example usage:
 
-`````typescript
-import { createActorKitRouter } from "actor-kit/worker";
-
-const actorKitRouter = createActorKitRouter(["todo", "chat"]);
+```typescript
+const router = createActorKitRouter<Env>(["todo"]);
 
 export default {
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    return actorKitRouter(request, env, ctx);
-  },
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    if (request.url.includes("/api/")) {
+      return router(request, env, ctx);
+    }
+    return new Response("API powered by ActorKit");
+  }
 };
-`````
+```
+
+The router handles:
+- Actor creation and initialization
+- Event routing to the correct actor
+- Access token validation
+- WebSocket connections for real-time updates 
 
 ### 🖥️ `actor-kit/server`
 
