@@ -1958,44 +1958,6 @@ export const ChatMessage: Story = {
 };
 ```
 
-### Step-by-Step Testing
-
-Use the `step` function to organize your tests:
-
-```typescript
-export const GameFlow: Story = {
-  play: async ({ canvas, mount, step }) => {
-    await step('Mount component with initial state', async () => {
-      await mount(<GameView />);
-    });
-
-    await step('Verify initial elements', async () => {
-      const title = await canvas.findByText(/game lobby/i);
-      expect(title).toBeInTheDocument();
-    });
-
-    await step('Simulate player joining', async () => {
-      const client = createActorKitMockClient<GameMachine>({/*...*/});
-      client.produce((draft) => {
-        draft.public.players.push({
-          id: "player-1",
-          name: "Player 1"
-        });
-      });
-
-      const playerName = await canvas.findByText("Player 1");
-      expect(playerName).toBeInTheDocument();
-    });
-  }
-};
-```
-
-The Storybook integration makes it easy to:
-- Test components in different states
-- Verify UI updates in response to state changes
-- Test complex interactions and state transitions
-- Document component behavior with interactive examples
-
 ## 📜 License
 
 Actor Kit is [MIT licensed](LICENSE.md).
