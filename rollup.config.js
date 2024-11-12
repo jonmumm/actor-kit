@@ -11,13 +11,13 @@ const createConfig = (input, output, format = "es", isReact = false) => [
       file: output,
       format,
       sourcemap: true,
-      banner: isReact ? '"use client";\n' : '',
+      banner: isReact ? '"use client";\n' : "",
     },
     external: [
       ...Object.keys(pkg.dependencies || {}),
       ...Object.keys(pkg.peerDependencies || {}),
       "cloudflare:workers",
-      "@cloudflare/workers-types"
+      "@cloudflare/workers-types",
     ],
     plugins: [
       typescript({
@@ -29,7 +29,10 @@ const createConfig = (input, output, format = "es", isReact = false) => [
       }),
     ],
     onwarn(warning, warn) {
-      if (warning.code === "UNRESOLVED_IMPORT" && warning.source === "cloudflare:workers") {
+      if (
+        warning.code === "UNRESOLVED_IMPORT" &&
+        warning.source === "cloudflare:workers"
+      ) {
         return;
       }
       if (warning.code !== "MODULE_LEVEL_DIRECTIVE") {
@@ -51,8 +54,6 @@ const createConfig = (input, output, format = "es", isReact = false) => [
 
 export default [
   ...createConfig("src/browser.ts", "./dist/browser.js"),
-  ...createConfig("src/server.ts", "./dist/server.js"),
   ...createConfig("src/react.ts", "./dist/react.js", "es", true),
-  ...createConfig("src/worker.ts", "./dist/worker.js"),
   ...createConfig("src/index.ts", "./dist/index.js"),
 ];

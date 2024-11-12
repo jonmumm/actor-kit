@@ -1,7 +1,7 @@
 import { LoaderFunctionArgs } from "@remix-run/node";
 import { json, useLoaderData } from "@remix-run/react";
 import { createAccessToken, createActorFetch } from "actor-kit/server";
-import { TodoList } from "../todo.components";
+import { TodoList } from "../components";
 import { TodoProvider } from "../todo.context";
 import type { TodoMachine } from "../todo.machine";
 

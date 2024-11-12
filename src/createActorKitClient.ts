@@ -2,6 +2,8 @@ import { applyPatch } from "fast-json-patch";
 import { produce } from "immer";
 
 import {
+  ActorKitClient,
+  ActorKitEmittedEvent,
   AnyActorKitStateMachine,
   CallerSnapshotFrom,
   ClientEventFrom,
@@ -16,16 +18,6 @@ export type ActorKitClientProps<TMachine extends AnyActorKitStateMachine> = {
   initialSnapshot: CallerSnapshotFrom<TMachine>;
   onStateChange?: (newState: CallerSnapshotFrom<TMachine>) => void;
   onError?: (error: Error) => void;
-};
-
-export type ActorKitClient<TMachine extends AnyActorKitStateMachine> = {
-  connect: () => Promise<void>;
-  disconnect: () => void;
-  send: (event: ClientEventFrom<TMachine>) => void;
-  getState: () => CallerSnapshotFrom<TMachine>;
-  subscribe: (
-    listener: (state: CallerSnapshotFrom<TMachine>) => void
-  ) => () => void;
 };
 
 type Listener<T> = (state: T) => void;
@@ -68,15 +60,16 @@ export function createActorKitClient<TMachine extends AnyActorKitStateMachine>(
 
     socket.addEventListener("message", (event: MessageEvent) => {
       try {
-        const { operations, checksum } = JSON.parse(
+        const data = JSON.parse(
           typeof event.data === "string"
             ? event.data
             : new TextDecoder().decode(event.data)
-        );
-        // todo use the checksum to store snapshot locally for local sync
+        ) as ActorKitEmittedEvent;
+
         currentSnapshot = produce(currentSnapshot, (draft) => {
-          applyPatch(draft, operations);
+          applyPatch(draft, data.operations);
         });
+
         props.onStateChange?.(currentSnapshot);
         notifyListeners();
       } catch (error) {
@@ -157,12 +150,53 @@ export function createActorKitClient<TMachine extends AnyActorKitStateMachine>(
     };
   };
 
+  /**
+   * Waits for a state condition to be met.
+   * @param {(state: CallerSnapshotFrom<TMachine>) => boolean} predicateFn - Function that returns true when condition is met
+   * @param {number} [timeoutMs=5000] - Maximum time to wait in milliseconds
+   * @returns {Promise<void>} Resolves when condition is met, rejects on timeout
+   */
+  const waitFor = async (
+    predicateFn: (state: CallerSnapshotFrom<TMachine>) => boolean,
+    timeoutMs: number = 5000
+  ): Promise<void> => {
+    // Check if condition is already met
+    if (predicateFn(currentSnapshot)) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      let timeoutId: number | null = null;
+
+      // Set up timeout to reject if condition isn't met in time
+      if (timeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+          unsubscribe();
+          reject(
+            new Error(`Timeout waiting for condition after ${timeoutMs}ms`)
+          );
+        }, timeoutMs);
+      }
+
+      // Subscribe to state changes
+      const unsubscribe = subscribe((state) => {
+        if (predicateFn(state)) {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  };
+
   return {
     connect,
     disconnect,
     send,
     getState,
     subscribe,
+    waitFor,
   };
 }
 

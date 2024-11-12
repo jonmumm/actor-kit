@@ -12,12 +12,10 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { matchesState, StateValueFrom } from "xstate";
-import type {
-  ActorKitClient,
-  ActorKitClientProps,
-} from "./createActorKitClient";
+import type { ActorKitClientProps } from "./createActorKitClient";
 import { createActorKitClient } from "./createActorKitClient";
 import type {
+  ActorKitClient,
   AnyActorKitStateMachine,
   CallerSnapshotFrom,
   ClientEventFrom,
@@ -28,6 +26,17 @@ export function createActorKitContext<TMachine extends AnyActorKitStateMachine>(
   actorType: string
 ) {
   const ActorKitContext = createContext<ActorKitClient<TMachine> | null>(null);
+
+  const ProviderFromClient: React.FC<{
+    children: ReactNode;
+    client: ActorKitClient<TMachine>;
+  }> = ({ children, client }) => {
+    return (
+      <ActorKitContext.Provider value={client}>
+        {children}
+      </ActorKitContext.Provider>
+    );
+  };
 
   const Provider: React.FC<
     {
@@ -140,6 +149,7 @@ export function createActorKitContext<TMachine extends AnyActorKitStateMachine>(
 
   return {
     Provider,
+    ProviderFromClient,
     useClient,
     useSelector,
     useSend,

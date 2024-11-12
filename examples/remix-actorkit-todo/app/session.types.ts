@@ -1,3 +1,4 @@
+import { DurableObjectStorage } from "@cloudflare/workers-types";
 import type {
   ActorKitSystemEvent,
   WithActorKitEvent,
@@ -13,12 +14,15 @@ import {
 export type SessionClientEvent = z.infer<typeof SessionClientEventSchema>;
 export type SessionServiceEvent = z.infer<typeof SessionServiceEventSchema>;
 export type SessionInputProps = z.infer<typeof SessionInputPropsSchema>;
-export type SessionInput = WithActorKitInput<SessionInputProps>;
+export type SessionInput = WithActorKitInput<SessionInputProps> & {
+  storage: DurableObjectStorage;
+};
 
-export type SessionEvent =
+export type SessionEvent = (
   | WithActorKitEvent<SessionClientEvent, "client">
   | WithActorKitEvent<SessionServiceEvent, "service">
-  | ActorKitSystemEvent;
+  | ActorKitSystemEvent
+) & { storage: DurableObjectStorage };
 
 export type SessionPublicContext = {
   id: string;
@@ -30,7 +34,8 @@ export type SessionPrivateContext = {
   theme: "light" | "dark";
 };
 
-export type SessionServerContext = {
+export type SessionPersistedContext = {
   public: SessionPublicContext;
   private: Record<string, SessionPrivateContext>;
+  history: string[];
 };

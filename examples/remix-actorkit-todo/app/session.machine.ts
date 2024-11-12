@@ -4,14 +4,12 @@ import { assign, setup } from "xstate";
 import {
   SessionEvent,
   SessionInput,
-  SessionPrivateContext,
-  SessionPublicContext,
-  SessionServerContext,
+  SessionPersistedContext,
 } from "./session.types";
 
 export const sessionMachine = setup({
   types: {
-    context: {} as SessionServerContext,
+    context: {} as SessionPersistedContext,
     events: {} as SessionEvent,
     input: {} as SessionInput,
   },
@@ -42,6 +40,7 @@ export const sessionMachine = setup({
       listIds: [],
     },
     private: {},
+    history: [],
   }),
   states: {
     idle: {
@@ -56,8 +55,7 @@ export const sessionMachine = setup({
 }) satisfies ActorKitStateMachine<
   SessionEvent,
   SessionInput,
-  SessionPrivateContext,
-  SessionPublicContext
+  SessionPersistedContext
 >;
 
 export type SessionMachine = typeof sessionMachine;

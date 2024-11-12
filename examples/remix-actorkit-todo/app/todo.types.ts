@@ -1,5 +1,6 @@
 import type {
   ActorKitSystemEvent,
+  BaseActorKitEvent,
   WithActorKitEvent,
   WithActorKitInput,
 } from "actor-kit";
@@ -14,10 +15,12 @@ export type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
 export type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
 export type TodoInputProps = z.infer<typeof TodoInputPropsSchema>;
 
-export type TodoEvent =
+export type TodoEvent = (
   | WithActorKitEvent<TodoClientEvent, "client">
   | WithActorKitEvent<TodoServiceEvent, "service">
-  | ActorKitSystemEvent;
+  | ActorKitSystemEvent
+) &
+  BaseActorKitEvent;
 
 export type TodoInput = WithActorKitInput<TodoInputProps>;
 

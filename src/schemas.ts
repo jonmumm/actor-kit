@@ -39,10 +39,6 @@ export const AnyEventSchema = z.object({
   type: z.string(),
 });
 
-export const BaseEventSchema = AnyEventSchema.extend({
-  caller: CallerSchema,
-});
-
 export const SystemEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("INITIALIZE"),

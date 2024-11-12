@@ -1,6 +1,4 @@
 import { jwtVerify, SignJWT } from "jose";
-import type { AnyStateMachine } from "xstate";
-import { xstateMigrate } from "xstate-migrate";
 import { PERSISTED_SNAPSHOT_KEY } from "./constants";
 import { CallerStringSchema } from "./schemas";
 import { Caller } from "./types";
@@ -21,7 +19,9 @@ declare global {
 // Set the current log level based on the global DEBUG_LEVEL variable
 // Default to INFO if not set
 const getCurrentLogLevel = (): LogLevel => {
-  return globalThis.DEBUG_LEVEL !== undefined ? globalThis.DEBUG_LEVEL : LogLevel.INFO;
+  return globalThis.DEBUG_LEVEL !== undefined
+    ? globalThis.DEBUG_LEVEL
+    : LogLevel.INFO;
 };
 
 /**
@@ -30,18 +30,22 @@ const getCurrentLogLevel = (): LogLevel => {
  * @param level The log level (default: DEBUG)
  * @param data Additional data to log (optional)
  */
-export function debug(message: string, level: LogLevel = LogLevel.DEBUG, data?: any) {
+export function debug(
+  message: string,
+  level: LogLevel = LogLevel.DEBUG,
+  data?: any
+) {
   const currentLogLevel = getCurrentLogLevel();
   if (level <= currentLogLevel) {
     const timestamp = new Date().toISOString();
     const logMessage = `[${timestamp}] ${LogLevel[level]}: ${message}`;
-    
+
     if (data) {
       console.log(logMessage, data);
     } else {
       console.log(logMessage);
     }
-    
+
     // You can extend this to send logs to a service if needed
     // For example:
     // if (typeof fetch !== 'undefined') {
@@ -54,46 +58,12 @@ export function debug(message: string, level: LogLevel = LogLevel.DEBUG, data?: 
 }
 
 // Convenience methods for different log levels
-export const logError = (message: string, data?: any) => debug(message, LogLevel.ERROR, data);
-export const logWarn = (message: string, data?: any) => debug(message, LogLevel.WARN, data);
-export const logInfo = (message: string, data?: any) => debug(message, LogLevel.INFO, data);
-
-export const loadPersistedSnapshot = async (storage: DurableObjectStorage) => {
-  const persistentSnapshot = await storage.get(PERSISTED_SNAPSHOT_KEY);
-  return persistentSnapshot ? JSON.parse(persistentSnapshot as string) : null;
-};
-
-/**
- * Applies any necessary migrations to the persisted snapshot.
- * @param machine The current state machine definition.
- * @param parsedSnapshot The snapshot to migrate.
- * @returns The migrated snapshot.
- */
-export const applyMigrations = (
-  machine: AnyStateMachine,
-  parsedSnapshot: any
-) => {
-  const migrations = xstateMigrate.generateMigrations(machine, parsedSnapshot);
-  return xstateMigrate.applyMigrations(parsedSnapshot, migrations);
-};
-
-export const createConnectionToken = async (
-  actorId: string,
-  connectionId: string,
-  callerType: string,
-  secret: string
-) => {
-  let signJWT = new SignJWT({})
-    .setProtectedHeader({ alg: "HS256" })
-    .setSubject(actorId)
-    .setAudience(callerType)
-    .setJti(connectionId)
-    .setIssuedAt()
-    .setExpirationTime("1d");
-
-  const token = await signJWT.sign(new TextEncoder().encode(secret));
-  return token;
-};
+export const logError = (message: string, data?: any) =>
+  debug(message, LogLevel.ERROR, data);
+export const logWarn = (message: string, data?: any) =>
+  debug(message, LogLevel.WARN, data);
+export const logInfo = (message: string, data?: any) =>
+  debug(message, LogLevel.INFO, data);
 
 export const json = <T>(data: T, status = 200) =>
   Response.json(data, { status });
