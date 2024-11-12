@@ -1728,10 +1728,6 @@ export const MultipleActors: Story = {
 };
 ```
 
-## Testing Event Payloads
-
-You can use the `onSend` callback with the mock client to verify that components are sending events with the correct payloads.
-
 ### Basic Event Spy Example
 
 ```typescript
