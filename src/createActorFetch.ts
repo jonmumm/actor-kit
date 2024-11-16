@@ -1,17 +1,13 @@
 import { StateValueFrom } from "xstate";
 import { z } from "zod";
-import {
-  ActorKitStateMachine,
-  CallerSnapshotFrom,
-  ClientEventFrom,
-} from "./types";
+import { AnyActorKitStateMachine, CallerSnapshotFrom, ClientEventFrom } from "./types";
 
 const ResponseSchema = z.object({
   snapshot: z.record(z.any()),
   checksum: z.string(),
 });
 
-export function createActorFetch<TMachine extends ActorKitStateMachine>({
+export function createActorFetch<TMachine extends AnyActorKitStateMachine>({
   actorType,
   host,
 }: {

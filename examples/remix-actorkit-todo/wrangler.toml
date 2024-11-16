@@ -18,9 +18,17 @@ class_name = "Remix"
 name = "TODO"
 class_name = "Todo"
 
+[[durable_objects.bindings]]
+name = "SESSION"
+class_name = "Session"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["Remix", "Todo"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["Session"]
 
 [observability]
 enabled = true

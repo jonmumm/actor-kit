@@ -1,10 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
-import type { AnyStateMachine, SnapshotFrom, StateMachine } from "xstate";
+import { Operation } from "fast-json-patch";
+import type {
+  AnyEventObject,
+  AnyStateMachine,
+  SnapshotFrom,
+  StateMachine,
+  StateValueFrom,
+} from "xstate";
 import type { z } from "zod";
-import type { StateValueFrom } from "xstate";
 import type {
   AnyEventSchema,
-  BaseEventSchema,
   CallerSchema,
   RequestInfoSchema,
   SystemEventSchema,
@@ -12,13 +17,12 @@ import type {
 
 export type EnvWithDurableObjects = {
   ACTOR_KIT_SECRET: string;
-  [key: string]: DurableObjectNamespace<ActorServer<any, any, any>> | unknown;
+  [key: string]: DurableObjectNamespace<ActorServer<any>> | unknown;
 };
 
 export type AnyEvent = z.infer<typeof AnyEventSchema>;
-export type BaseEvent = z.infer<typeof BaseEventSchema>;
 
-export interface ActorServerMethods<TMachine extends ActorKitStateMachine> {
+export interface ActorServerMethods<TMachine extends BaseActorKitStateMachine> {
   fetch(request: Request): Promise<Response>;
   spawn(props: {
     actorType: string;
@@ -38,61 +42,106 @@ export interface ActorServerMethods<TMachine extends ActorKitStateMachine> {
   }>;
 }
 
-export type ActorServer<
-  TMachine extends ActorKitStateMachine,
-  TEventSchemas extends EventSchemas,
-  Env
-> = DurableObject & ActorServerMethods<TMachine>;
-export type AnyActorServer = ActorServer<any, any, any>;
+export type ActorServer<TMachine extends AnyActorKitStateMachine> =
+  DurableObject & ActorServerMethods<TMachine>;
+export type AnyActorServer = ActorServer<any>;
 
 export type Caller = z.infer<typeof CallerSchema>;
 export type RequestInfo = z.infer<typeof RequestInfoSchema>;
 
-export type WithIdAndCallerInput = {
+export type ActorKitInputProps = {
   id: string;
   caller: Caller;
+  storage: DurableObjectStorage;
   [key: string]: unknown;
 };
-
-export type CreateMachineProps = WithIdAndCallerInput;
 
 export type CallerType = "client" | "system" | "service";
 
-export type EventSchemas = {
-  client:
-    | z.ZodDiscriminatedUnion<"type", [z.ZodObject<any>, ...z.ZodObject<any>[]]>
-    | z.ZodObject<z.ZodRawShape & { type: z.ZodLiteral<string> }>;
-  service:
-    | z.ZodDiscriminatedUnion<"type", [z.ZodObject<any>, ...z.ZodObject<any>[]]>
-    | z.ZodObject<z.ZodRawShape & { type: z.ZodLiteral<string> }>;
-};
-
-export type EventWithCaller = {
+type EventObject = {
   type: string;
-  [key: string]: unknown;
 };
 
-export type ActorKitStateMachine = StateMachine<
-  {
-    public: any;
-    private: Record<string, any>;
-  } & {
-    [key: string]: unknown;
+type EventSchemaUnion = z.ZodDiscriminatedUnion<
+  "type",
+  [
+    z.ZodObject<z.ZodRawShape & { type: z.ZodString }>,
+    ...z.ZodObject<z.ZodRawShape & { type: z.ZodString }>[]
+  ]
+>;
+
+export type EventSchemas = {
+  client: EventSchemaUnion;
+  service: EventSchemaUnion;
+};
+
+export type BaseActorKitContext<
+  TPublicProps extends { [key: string]: unknown },
+  TPrivateProps extends { [key: string]: unknown }
+> = {
+  public: TPublicProps;
+  private: Record<string, TPrivateProps>;
+};
+
+export type ActorKitStateMachine<
+  TEvent extends BaseActorKitEvent<EnvWithDurableObjects>,
+  TInput extends {
+    id: string;
+    caller: Caller;
+    storage: DurableObjectStorage;
   },
-  // ActorKitEvent, // event
-  any, // event
-  any, // children
-  any, // actor
-  any, // action
-  any, // guard
-  any, // delay
-  any, // state value
-  any, // tag
-  CreateMachineProps, // input
-  any, // tag
-  any, // tag
-  any, // tag
-  any // output
+  TContext extends BaseActorKitContext<any, any> & {
+    [key: string]: unknown;
+  }
+> = StateMachine<
+  TContext,
+  TEvent & EventObject,
+  any,
+  any,
+  any,
+  any,
+  any,
+  any,
+  any,
+  TInput,
+  any,
+  any,
+  any,
+  any
+>;
+
+export type BaseActorKitInput = {
+  id: string;
+  caller: Caller;
+  env: EnvWithDurableObjects;
+  storage: DurableObjectStorage;
+};
+
+export type WithActorKitInput<T extends { [key: string]: unknown }> = T &
+  BaseActorKitInput;
+
+export type AnyActorKitStateMachine = ActorKitStateMachine<any, any, any>;
+
+type AnyActorKitEvent = (
+  | WithActorKitEvent<AnyEventObject, "client">
+  | WithActorKitEvent<AnyEventObject, "service">
+  | ActorKitSystemEvent
+) &
+  BaseActorKitEvent<EnvWithDurableObjects>;
+
+type AnyActorKitInput = WithActorKitInput<{ [key: string]: unknown }> & {
+  storage: DurableObjectStorage;
+};
+
+type AnyActorKitContext = {
+  public: { [key: string]: unknown };
+  private: Record<string, { [key: string]: unknown }>;
+};
+
+export type BaseActorKitStateMachine = ActorKitStateMachine<
+  AnyActorKitEvent,
+  AnyActorKitInput,
+  AnyActorKitContext
 >;
 
 export type MachineServerOptions = {
@@ -103,11 +152,11 @@ export type ExtraContext = {
   requestId: string;
 };
 
-// Base event interface
-export interface BaseActorKitEvent {
+export interface BaseActorKitEvent<TEnv extends EnvWithDurableObjects> {
   caller: Caller;
+  storage: DurableObjectStorage;
   requestInfo?: RequestInfo;
-  // cf?: CloudFlareProps;
+  env: TEnv;
 }
 
 export type ActorKitSystemEvent = z.infer<typeof SystemEventSchema>;
@@ -116,7 +165,16 @@ export type ActorKitSystemEvent = z.infer<typeof SystemEventSchema>;
 export type WithActorKitEvent<
   T extends { type: string },
   C extends CallerType
-> = T & BaseActorKitEvent & { caller: { type: C } };
+> = T & BaseActorKitEvent<EnvWithDurableObjects> & { caller: { type: C } };
+
+export type WithActorKitContext<
+  TExtraProps extends { [key: string]: unknown },
+  TPrivateProps extends { [key: string]: unknown },
+  TPublicProps extends { [key: string]: unknown }
+> = TExtraProps & {
+  public: TPublicProps;
+  private: Record<string, TPrivateProps>;
+};
 
 export type CallerSnapshotFrom<TMachine extends AnyStateMachine> = {
   public: SnapshotFrom<TMachine> extends { context: { public: infer P } }
@@ -130,7 +188,7 @@ export type CallerSnapshotFrom<TMachine extends AnyStateMachine> = {
   value: SnapshotFrom<TMachine> extends { value: infer V } ? V : unknown;
 };
 
-export type ClientEventFrom<T extends ActorKitStateMachine> =
+export type ClientEventFrom<T extends AnyActorKitStateMachine> =
   T extends StateMachine<
     any,
     infer TEvent,
@@ -148,11 +206,11 @@ export type ClientEventFrom<T extends ActorKitStateMachine> =
     any
   >
     ? TEvent extends WithActorKitEvent<infer E, "client">
-      ? E
+      ? Omit<E, keyof BaseActorKitEvent<EnvWithDurableObjects>>
       : never
     : never;
 
-export type ServiceEventFrom<T extends ActorKitStateMachine> =
+export type ServiceEventFrom<T extends AnyActorKitStateMachine> =
   T extends StateMachine<
     any,
     infer TEvent,
@@ -170,7 +228,7 @@ export type ServiceEventFrom<T extends ActorKitStateMachine> =
     any
   >
     ? TEvent extends WithActorKitEvent<infer E, "service">
-      ? E
+      ? Omit<E, keyof BaseActorKitEvent<EnvWithDurableObjects>>
       : never
     : never;
 
@@ -180,8 +238,8 @@ export type ScreamingSnakeToKebab<S extends string> =
     ? `${Lowercase<T>}-${ScreamingSnakeToKebab<U>}`
     : Lowercase<S>;
 
-export type DurableObjectActor<TMachine extends ActorKitStateMachine> =
-  ActorServer<TMachine, any, any>;
+export type DurableObjectActor<TMachine extends AnyActorKitStateMachine> =
+  ActorServer<TMachine>;
 
 type CamelToSnakeCase<S extends string> = S extends `${infer T}${infer U}`
   ? U extends Uncapitalize<U>
@@ -196,3 +254,35 @@ type KebabToCamelCase<S extends string> = S extends `${infer T}-${infer U}`
 export type KebabToScreamingSnake<S extends string> = Uppercase<
   CamelToSnakeCase<KebabToCamelCase<S>>
 >;
+export interface MatchesProps<TMachine extends AnyActorKitStateMachine> {
+  state: StateValueFrom<TMachine>;
+  and?: StateValueFrom<TMachine>;
+  or?: StateValueFrom<TMachine>;
+  not?: boolean;
+  initialValueOverride?: boolean;
+}
+
+export type MachineFromServer<T> = T extends ActorServer<infer M> ? M : never;
+
+export type ActorKitEmittedEvent = {
+  operations: Operation[];
+  checksum: string;
+};
+// | {
+//     snapshot: CallerSnapshotFrom<TMachine>;
+//     checksum: string;
+//   };
+
+export type ActorKitClient<TMachine extends AnyActorKitStateMachine> = {
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  send: (event: ClientEventFrom<TMachine>) => void;
+  getState: () => CallerSnapshotFrom<TMachine>;
+  subscribe: (
+    listener: (state: CallerSnapshotFrom<TMachine>) => void
+  ) => () => void;
+  waitFor: (
+    predicateFn: (state: CallerSnapshotFrom<TMachine>) => boolean,
+    timeoutMs?: number
+  ) => Promise<void>;
+};

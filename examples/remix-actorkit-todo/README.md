@@ -1,6 +1,6 @@
 # Remix + Actor Kit Todo Example
 
-This project demonstrates how to integrate Actor Kit with a Remix application running entirely on Cloudflare Workers. It showcases a real-time, event-driven todo list with owner-based access control, all within a single Worker.
+This project demonstrates how to integrate Actor Kit with a Remix application running entirely on Cloudflare Workers. It showcases a real-time, event-driven todo list with owner-based access control and session management, all within a single Worker.
 
 Try it live: [https://remix-actorkit-todo.jonathanrmumm.workers.dev/](https://remix-actorkit-todo.jonathanrmumm.workers.dev/)
 
@@ -9,11 +9,12 @@ Try it live: [https://remix-actorkit-todo.jonathanrmumm.workers.dev/](https://re
 - 🚀 Single Cloudflare Worker for both Remix app and Actor Kit backend
 - 🔄 Real-time synchronization across clients
 - 🖥️ Server-side rendering with Remix
-- 🎭 State management using XState and Actor Kit
+- 🎭 State management using Actor Kit
 - 🛡️ Type-safe interactions with TypeScript and Zod
 - 🔐 Secure handling of public and private data
 - 🔒 JWT-based authentication
 - 👤 Owner-based access control demonstration
+- 📝 Session management for tracking user's todo lists
 
 ## 📁 Project Structure
 
@@ -32,7 +33,11 @@ examples/remix-actorkit-todo/
 │   ├── todo.schemas.ts          # Zod schemas for todo events
 │   ├── todo.server.ts           # Todo server setup
 │   ├── todo.types.ts            # TypeScript types for todos
-│   ├── user.context.tsx         # User context
+│   ├── session.context.tsx      # Actor Kit context for session
+│   ├── session.machine.ts       # Session state machine
+│   ├── session.schemas.ts       # Zod schemas for session events
+│   ├── session.server.ts        # Session server setup
+│   ├── session.types.ts         # TypeScript types for session
 │   └── env.ts                   # Environment type definitions
 ├── server.ts                    # Main server file
 ├── package.json                 # Project dependencies and scripts
@@ -44,75 +49,16 @@ examples/remix-actorkit-todo/
 
 ## 🛠️ How It Works
 
-### 1. Environment Setup
+### 1. Main Setup
 
-The `app/env.ts` file defines the structure of the environment variables and extends the Remix `AppLoadContext`:
-
-```typescript
-import type { ActorServer } from "actor-kit";
-import type { Remix } from "../server";
-import type { TodoServer } from "./todo.server";
-
-declare module "@remix-run/cloudflare" {
-  interface AppLoadContext {
-    env: Env;
-    userId: string;
-    sessionId: string;
-    pageSessionId: string;
-  }
-}
-
-export interface Env {
-  REMIX: DurableObjectNamespace<Remix>;
-  TODO: DurableObjectNamespace<TodoServer>;
-  ACTOR_KIT_SECRET: string;
-  ACTOR_KIT_HOST: string;
-  NODE_ENV: string;
-}
-```
-
-This setup ensures type safety when accessing environment variables and context throughout the application.
-
-### 2. Todo Server Setup
-
-The `app/todo.server.ts` file creates the Todo server using Actor Kit:
-
-```typescript
-import { createMachineServer } from "actor-kit/worker";
-import { createTodoListMachine } from "./todo.machine";
-import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
-
-export const Todo = createMachineServer({
-  createMachine: createTodoListMachine,
-  eventSchemas: {
-    client: TodoClientEventSchema,
-    service: TodoServiceEventSchema,
-  },
-  options: {
-    persisted: true,
-  },
-});
-
-export type TodoServer = InstanceType<typeof Todo>;
-export default Todo;
-```
-
-This setup:
-
-- Creates a machine server for the Todo list
-- Defines client and service event schemas
-- Enables persistence for the Todo state
-
-### 3. Unified Worker Setup
-
-The `server.ts` file sets up a single Cloudflare Worker that handles both Remix requests and Actor Kit API calls:
+The `server.ts` file sets up a Cloudflare Worker that handles both Remix requests and Actor Kit API calls:
 
 ```typescript
 import { createActorKitRouter } from "actor-kit/worker";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Env } from "./app/env";
 
-const router = createActorKitRouter<Env>(["todo"]);
+const router = createActorKitRouter<Env>(["todo", "session"]);
 
 export default class Worker extends WorkerEntrypoint<Env> {
   fetch(request: Request): Promise<Response> | Response {
@@ -126,9 +72,181 @@ export default class Worker extends WorkerEntrypoint<Env> {
 }
 ```
 
-### 4. Server-Side Integration
+This setup uses `createActorKitRouter` to handle Actor Kit API requests, while delegating other requests to the Remix application.
 
-The todo list page (`app/routes/lists.$id.tsx`) fetches initial state and sets up the Actor Kit context:
+### 2. Machine Definition
+
+The project uses two main actors: Todo and Session. Here's how the Todo machine is defined:
+
+#### Todo Machine (`app/todo.machine.ts`)
+
+```typescript
+import { ActorKitStateMachine } from "actor-kit";
+import { assign, setup } from "xstate";
+import type {
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext,
+  TodoServerContext,
+} from "./todo.types";
+
+export const todoMachine = setup({
+  types: {
+    context: {} as TodoServerContext,
+    events: {} as TodoEvent,
+    input: {} as TodoInput,
+  },
+  actions: {
+    addTodo: assign({
+      public: ({ context, event }) => {
+        if (event.type !== "ADD_TODO") return context.public;
+        return {
+          ...context.public,
+          todos: [
+            ...context.public.todos,
+            { id: crypto.randomUUID(), text: event.text, completed: false },
+          ],
+          lastSync: new Date().getTime(),
+        };
+      },
+    }),
+    // ... other actions
+  },
+  guards: {
+    isOwner: ({ context, event }) => event.caller.id === context.public.ownerId,
+  },
+}).createMachine({
+  id: "todo",
+  type: "parallel",
+  context: ({ input }: { input: TodoInput }) => ({
+    public: {
+      ownerId: input.caller.id,
+      todos: [],
+      lastSync: null,
+    },
+    private: {},
+  }),
+  states: {
+    Initialization: {
+      initial: "Ready",
+      states: {
+        Ready: {},
+      },
+    },
+    TodoManagement: {
+      on: {
+        ADD_TODO: {
+          actions: ["addTodo"],
+          guard: "isOwner",
+        },
+        // ... other event handlers
+      },
+    },
+  },
+}) satisfies ActorKitStateMachine<
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext
+>;
+
+export type TodoMachine = typeof todoMachine;
+```
+
+This machine definition uses the `satisfies` keyword to ensure type safety with the events and context types defined in the `todo.types.ts` file.
+
+### 3. Server Setup
+
+The server setup combines the machine definition with the schemas:
+
+#### Todo Server (`app/todo.server.ts`)
+
+```typescript
+import { createMachineServer } from "actor-kit/worker";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoInputPropsSchema,
+  TodoServiceEventSchema,
+} from "./todo.schemas";
+
+export const Todo = createMachineServer({
+  machine: todoMachine,
+  schemas: {
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
+  },
+  options: {
+    persisted: true,
+  },
+});
+
+export type TodoServer = InstanceType<typeof Todo>;
+export type TodoMachine = MachineFromServer<TodoServer>;
+```
+
+This setup uses `createMachineServer` to create a server instance of the Todo machine, combining it with the schemas defined in `todo.schemas.ts`.
+
+### 4. Remix Integration
+
+In the root layout (`root.tsx`), we set up the Session actor context:
+
+```typescript
+export async function loader({ context }: LoaderFunctionArgs) {
+  const fetchSession = createActorFetch<SessionMachine>({
+    actorType: "session",
+    host: context.env.ACTOR_KIT_HOST,
+  });
+
+  const accessToken = await createAccessToken({
+    signingKey: context.env.ACTOR_KIT_SECRET,
+    actorId: context.sessionId,
+    actorType: "session",
+    callerId: context.userId,
+    callerType: "client",
+  });
+
+  const payload = await fetchSession({
+    actorId: context.sessionId,
+    accessToken,
+  });
+
+  return json({
+    sessionId: context.sessionId,
+    accessToken,
+    payload,
+    host: context.env.ACTOR_KIT_HOST,
+  });
+}
+
+export default function App() {
+  const { host, sessionId, accessToken, payload } = useLoaderData<typeof loader>();
+
+  return (
+    <html lang="en">
+      <body>
+        <SessionProvider
+          host={host}
+          actorId={sessionId}
+          checksum={payload.checksum}
+          accessToken={accessToken}
+          initialSnapshot={payload.snapshot}
+        >
+          <Outlet />
+        </SessionProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+This setup uses `createActorFetch` and `createAccessToken` from Actor Kit to fetch the initial session state and set up the `SessionProvider`.
+
+### 5. Route-Level Integration
+
+In the todo list page (`routes/lists.$id.tsx`), we set up the Todo actor context:
 
 ```typescript
 export async function loader({ params, context }: LoaderFunctionArgs) {
@@ -137,35 +255,27 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
     host: context.env.ACTOR_KIT_HOST,
   });
 
-  const listId = params.id;
-  if (!listId) {
-    throw new Error("listId is required");
-  }
-
   const accessToken = await createAccessToken({
     signingKey: context.env.ACTOR_KIT_SECRET,
-    actorId: listId,
+    actorId: params.id!,
     actorType: "todo",
     callerId: context.userId,
     callerType: "client",
   });
+
   const payload = await fetchTodoActor({
-    actorId: listId,
+    actorId: params.id!,
     accessToken,
   });
-  return json({
-    listId,
-    accessToken,
-    payload,
-    host: context.env.ACTOR_KIT_HOST,
-  });
+
+  return json({ listId: params.id, accessToken, payload, host: context.env.ACTOR_KIT_HOST });
 }
 
 export default function ListPage() {
   const { listId, accessToken, payload, host } = useLoaderData<typeof loader>();
 
   return (
-    <TodoActorKitProvider
+    <TodoProvider
       host={host}
       actorId={listId}
       accessToken={accessToken}
@@ -173,25 +283,23 @@ export default function ListPage() {
       initialSnapshot={payload.snapshot}
     >
       <TodoList />
-    </TodoActorKitProvider>
+    </TodoProvider>
   );
 }
 ```
 
-### 5. Client-Side Component
+### 6. Client-Side Component
 
-The `TodoList` component (`app/todo.components.tsx`) demonstrates an example of access control and how to use the `send` function to dispatch events:
+The `TodoList` component (`app/todo.components.tsx`) demonstrates how to use the Actor Kit context to interact with the state machine:
 
 ```typescript
 export function TodoList() {
-  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
-  const send = TodoActorKitContext.useSend();
+  const todos = TodoContext.useSelector((state) => state.public.todos);
+  const send = TodoContext.useSend();
   const [newTodoText, setNewTodoText] = useState("");
 
-  const userId = useContext(UserContext);
-  const ownerId = TodoActorKitContext.useSelector(
-    (state) => state.public.ownerId
-  );
+  const userId = SessionContext.useSelector((state) => state.public.userId);
+  const ownerId = TodoContext.useSelector((state) => state.public.ownerId);
   const isOwner = ownerId === userId;
 
   const handleAddTodo = (e: React.FormEvent) => {
@@ -202,26 +310,36 @@ export function TodoList() {
     }
   };
 
-  const handleToggleTodo = (id: string) => {
-    send({ type: "TOGGLE_TODO", id });
-  };
-
-  const handleDeleteTodo = (id: string) => {
-    send({ type: "DELETE_TODO", id });
-  };
-
   return (
     <div>
       <h1>Todo List</h1>
-      {isOwner && <form onSubmit={handleAddTodo}>{/* Add todo form */}</form>}
+      {isOwner && (
+        <form onSubmit={handleAddTodo}>
+          <input
+            type="text"
+            value={newTodoText}
+            onChange={(e) => setNewTodoText(e.target.value)}
+            placeholder="Add a new todo"
+          />
+          <button type="submit">Add</button>
+        </form>
+      )}
       <ul>
         {todos.map((todo) => (
           <li key={todo.id}>
-            <span>{todo.text}</span>
-            <button onClick={() => handleToggleTodo(todo.id)}>
-              {todo.completed ? "Undo" : "Complete"}
-            </button>
-            <button onClick={() => handleDeleteTodo(todo.id)}>Delete</button>
+            <span style={{ textDecoration: todo.completed ? "line-through" : "none" }}>
+              {todo.text}
+            </span>
+            {isOwner && (
+              <>
+                <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+                  {todo.completed ? "Undo" : "Complete"}
+                </button>
+                <button onClick={() => send({ type: "DELETE_TODO", id: todo.id })}>
+                  Delete
+                </button>
+              </>
+            )}
           </li>
         ))}
       </ul>
@@ -229,18 +347,6 @@ export function TodoList() {
   );
 }
 ```
-
-In this component:
-
-1. We use `TodoActorKitContext.useSend()` to get the `send` function, which allows us to dispatch events to the Actor Kit state machine.
-
-2. The `handleAddTodo` function demonstrates how to send an `ADD_TODO` event with a payload containing the new todo text.
-
-3. The `handleToggleTodo` function shows how to send a `TOGGLE_TODO` event with the todo's id.
-
-4. The `handleDeleteTodo` function illustrates sending a `DELETE_TODO` event with the todo's id.
-
-These events are defined in the todo state machine and processed accordingly, updating the state and triggering real-time updates across all connected clients.
 
 ## 🚀 Getting Started
 
@@ -259,18 +365,12 @@ These events are defined in the todo state machine and processed accordingly, up
 
 3. Configure the project:
 
-   The `wrangler.toml` file should look like this:
+   Update the `wrangler.toml` file to include both TODO and SESSION Durable Objects:
 
    ```toml
    name = "remix-actorkit-todo"
    main = "dist/index.js"
    compatibility_date = "2024-09-25"
-
-   assets = { directory = "./public" }
-
-   [define]
-   "process.env.REMIX_DEV_ORIGIN" = "'http://127.0.0.1:8002'"
-   "process.env.REMIX_DEV_SERVER_WS_PORT" = "8002"
 
    [[durable_objects.bindings]]
    name = "REMIX"
@@ -280,121 +380,46 @@ These events are defined in the todo state machine and processed accordingly, up
    name = "TODO"
    class_name = "Todo"
 
+   [[durable_objects.bindings]]
+   name = "SESSION"
+   class_name = "Session"
+
    [[migrations]]
    tag = "v1"
-   new_classes = ["Remix", "Todo"]
+   new_classes = ["Remix", "Todo", "Session"]
    ```
 
 4. Set up environment variables:
-   Create a `.dev.vars` file in the root of your project:
+   Create a `.dev.vars` file in the root of your project and add the necessary environment variables.
 
-   ```bash
-   touch .dev.vars
-   ```
-
-   Add the following environment variables to `.dev.vars`:
-
-   ```
-   ACTOR_KIT_SECRET=your-secret-key
-   ```
-
-   Make sure to replace `your-secret-key` with a secure secret key for your project.
-
-5. Update the loader function:
-   In `app/routes/lists.$id.tsx`, update the loader function to use the environment variables:
-
-   ```typescript
-   export async function loader({ params, context }: LoaderFunctionArgs) {
-     const fetchTodoActor = createActorFetch<TodoMachine>({
-       actorType: "todo",
-       host: context.env.ACTOR_KIT_HOST,
-     });
-
-     const listId = params.id;
-     if (!listId) {
-       throw new Error("listId is required");
-     }
-
-     const accessToken = await createAccessToken({
-       signingKey: context.env.ACTOR_KIT_SECRET,
-       actorId: listId,
-       actorType: "todo",
-       callerId: context.userId,
-       callerType: "client",
-     });
-     const payload = await fetchTodoActor({
-       actorId: listId,
-       accessToken,
-     });
-     return json({
-       listId,
-       accessToken,
-       payload,
-       host: context.env.ACTOR_KIT_HOST,
-     });
-   }
-   ```
-
-6. Build the project:
+5. Build and start the development server:
 
    ```bash
    npm run build
-   ```
-
-7. Start the development server:
-
-   ```bash
    npm run dev
    ```
 
-   This command starts the Cloudflare Worker, which includes both the Remix application and Actor Kit backend.
-
-8. Open `http://localhost:8787` in your browser to view the application.
-
-Note: The environment variables are accessed through the `context.env` object in the loader functions. This allows for secure handling of sensitive information and easy configuration between development and production environments.
+6. Open `http://localhost:8787` in your browser to view the application.
 
 ## 🚀 Deployment
 
 To deploy the Remix + Actor Kit Todo Example to Cloudflare Workers:
 
-1. Set up environment variables for production:
+1. Set up environment variables for production using `wrangler secret put`.
 
-   ```bash
-   npx wrangler secret put ACTOR_KIT_SECRET
-   ```
-
-   Enter the appropriate values when prompted:
-
-   - `ACTOR_KIT_SECRET`: A secure, randomly generated secret key
-
-2. Update `wrangler.toml` for production if necessary:
-
-   ```toml
-   name = "remix-actorkit-todo"
-   main = "dist/index.js"
-   compatibility_date = "2024-09-25"
-
-   [[durable_objects.bindings]]
-   name = "REMIX"
-   class_name = "Remix"
-
-   [[durable_objects.bindings]]
-   name = "TODO"
-   class_name = "Todo"
-
-   [[migrations]]
-   tag = "v1"
-   new_classes = ["Remix", "Todo"]
-   ```
-
-3. Build the project:
+2. Build the project:
 
    ```bash
    npm run build
    ```
 
-4. Deploy the Worker:
+3. Deploy the Worker:
 
    ```bash
    npx wrangler deploy
    ```
+
+This example demonstrates how to create a complex, real-time application using Remix and Actor Kit, leveraging the power of Cloudflare Workers for both the frontend and backend. It showcases how to manage state across multiple clients, handle authentication, and implement owner-based access control, all within a single Worker environment.
+```
+
+This updated README now provides a more comprehensive overview of the project structure and implementation, including the machine definition, server setup, and how they interact with the schemas and types. It also maintains the original structure while incorporating the new changes and providing more detailed explanations.

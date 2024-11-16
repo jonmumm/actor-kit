@@ -1,16 +1,21 @@
-import { createMachineServer } from 'actor-kit/worker';
-import { createTodoListMachine } from './todo.machine';
-import { TodoClientEventSchema, TodoServiceEventSchema } from './todo.schemas';
+import { createMachineServer } from "actor-kit/worker";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoInputPropsSchema,
+  TodoServiceEventSchema,
+} from "./todo.schemas";
 
 export const Todo = createMachineServer({
-	createMachine: createTodoListMachine,
-	eventSchemas: {
-		client: TodoClientEventSchema,
-		service: TodoServiceEventSchema,
-	},
-	options: {
-		persisted: true,
-	},
+  machine: todoMachine,
+  schemas: {
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
+  },
+  options: {
+    persisted: true,
+  },
 });
 
 export type TodoServer = InstanceType<typeof Todo>;

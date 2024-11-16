@@ -1,8 +1,8 @@
 import { LoaderFunctionArgs } from "@remix-run/node";
 import { json, useLoaderData } from "@remix-run/react";
 import { createAccessToken, createActorFetch } from "actor-kit/server";
-import { TodoList } from "../todo.components";
-import { TodoActorKitProvider } from "../todo.context";
+import { TodoList } from "../components";
+import { TodoProvider } from "../todo.context";
 import type { TodoMachine } from "../todo.machine";
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
@@ -39,7 +39,7 @@ export default function ListPage() {
   const { listId, accessToken, payload, host } = useLoaderData<typeof loader>();
 
   return (
-    <TodoActorKitProvider
+    <TodoProvider
       host={host}
       actorId={listId}
       accessToken={accessToken}
@@ -47,6 +47,6 @@ export default function ListPage() {
       initialSnapshot={payload.snapshot}
     >
       <TodoList />
-    </TodoActorKitProvider>
+    </TodoProvider>
   );
 }

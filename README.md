@@ -22,12 +22,15 @@ Actor Kit is a library for running state machines in Cloudflare Workers, leverag
   - [🎸 Remix](/examples/remix-actorkit-todo/README.md)
 - [📖 API Reference](#-api-reference)
   - [🔧 actor-kit/worker](#-actor-kitworker)
-  - [🖥️ actor-kit/server](#️-actor-kitserver)
+  - [🖥️ actor-kit/server](#%EF%B8%8F-actor-kitserver)
   - [🌐 actor-kit/browser](#-actor-kitbrowser)
-  - [⚛️ actor-kit/react](#️-actor-kitreact)
+  - [⚛️ actor-kit/react](#%EF%B8%8F-actor-kitreact)
+  - [🧪 actor-kit/test](#-actor-kittest)
+  - [📚 actor-kit/storybook](#-actor-kitstorybook)
 - [🔑 TypeScript Types](#-typescript-types)
 - [👥 Caller Types](#-caller-types)
 - [🔐 Public and Private Data](#-public-and-private-data)
+- [📚 Storybook Integration](#-storybook-integration)
 - [📜 License](#-license)
 - [🔗 Related Technologies and Inspiration](#-related-technologies-and-inspiration)
 - [🚧 Development Status](#-development-status)
@@ -37,11 +40,11 @@ Actor Kit is a library for running state machines in Cloudflare Workers, leverag
 To install Actor Kit, use your preferred package manager:
 
 ```bash
-npm install actor-kit xstate zod
+npm install actor-kit xstate zod jose react
 # or
-yarn add actor-kit xstate zod
+yarn add actor-kit xstate zod jose react
 # or
-pnpm add actor-kit xstate zod
+pnpm add actor-kit xstate zod jose react
 ```
 
 ## 🌟 Key Concepts
@@ -143,18 +146,47 @@ export const TodoServiceEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+export const TodoInputPropsSchema = z.object({
+  accessCount: z.number(),
+});
+
 // src/todo.types.ts
-import type { WithActorKitEvent, ActorKitSystemEvent } from "actor-kit";
+import type {
+  ActorKitSystemEvent,
+  WithActorKitEvent,
+  WithActorKitInput,
+} from "actor-kit";
 import { z } from "zod";
-import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+import {
+  TodoClientEventSchema,
+  TodoInputPropsSchema,
+  TodoServiceEventSchema,
+} from "./todo.schemas";
 
 export type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
 export type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
+export type TodoInputProps = z.infer<typeof TodoInputPropsSchema>;
+export type TodoInput = WithActorKitInput<TodoInputProps>;
 
 export type TodoEvent =
   | WithActorKitEvent<TodoClientEvent, "client">
   | WithActorKitEvent<TodoServiceEvent, "service">
   | ActorKitSystemEvent;
+
+export type TodoPublicContext = {
+  ownerId: string;
+  todos: Array<{ id: string; text: string; completed: boolean }>;
+  lastSync: number | null;
+};
+
+export type TodoPrivateContext = {
+  accessCount: number;
+};
+
+export type TodoServerContext = {
+  public: TodoPublicContext;
+  private: Record<string, TodoPrivateContext>;
+};
 ```
 
 ### 2️⃣ Define your state machine
@@ -163,65 +195,69 @@ Now that we have our event types defined, we can create our state machine:
 
 ```typescript
 // src/todo.machine.ts
-import type { CreateMachineProps } from "actor-kit";
+import { ActorKitStateMachine } from "actor-kit";
 import { assign, setup } from "xstate";
-import type { TodoEvent } from "./todo.types";
+import type {
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext,
+  TodoServerContext,
+} from "./todo.types";
 
-export const createTodoListMachine = ({ id, caller }: CreateMachineProps) =>
-  setup({
-    types: {
-      context: {} as {
-        public: {
-          ownerId: string;
-          todos: Array<{ id: string; text: string; completed: boolean }>;
-          lastSync: number | null;
+export const todoMachine = setup({
+  types: {
+    context: {} as TodoServerContext,
+    events: {} as TodoEvent,
+    input: {} as TodoInput,
+  },
+  actions: {
+    addTodo: assign({
+      public: ({ context, event }) => {
+        if (event.type !== "ADD_TODO") return context.public;
+        return {
+          ...context.public,
+          todos: [
+            ...context.public.todos,
+            { id: crypto.randomUUID(), text: event.text, completed: false },
+          ],
+          lastSync: Date.now(),
         };
-        private: Record<string, { lastAccessTime?: number }>;
       },
-      events: {} as TodoEvent,
+    }),
+    // ... other actions ...
+  },
+  guards: {
+    // ... guards ...
+  },
+}).createMachine({
+  id: "todoList",
+  initial: "idle",
+  context: {
+    public: {
+      ownerId: caller.id,
+      todos: [],
+      lastSync: null,
     },
-    actions: {
-      addTodo: assign({
-        public: ({ context, event }) => {
-          if (event.type !== "ADD_TODO") return context.public;
-          return {
-            ...context.public,
-            todos: [
-              ...context.public.todos,
-              { id: crypto.randomUUID(), text: event.text, completed: false },
-            ],
-            lastSync: Date.now(),
-          };
+    private: {},
+  },
+  states: {
+    idle: {
+      on: {
+        ADD_TODO: {
+          actions: "addTodo",
         },
-      }),
-      // ... other actions ...
-    },
-    guards: {
-      // ... guards ...
-    },
-  }).createMachine({
-    id: "todoList",
-    initial: "idle",
-    context: {
-      public: {
-        ownerId: caller.id,
-        todos: [],
-        lastSync: null,
+        // ... other transitions ...
       },
-      private: {},
     },
-    states: {
-      idle: {
-        on: {
-          ADD_TODO: {
-            actions: "addTodo",
-          },
-          // ... other transitions ...
-        },
-      },
-      // ... other states ...
-    },
-  });
+    // ... other states ...
+  },
+}) satisfies ActorKitStateMachine<
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext
+>;
 ```
 
 ### 3️⃣ Set up the Actor Server
@@ -231,14 +267,19 @@ Create the Actor Server using the `createMachineServer` function:
 ```typescript
 // src/todo.server.ts
 import { createMachineServer } from "actor-kit/worker";
-import { createTodoListMachine } from "./todo.machine";
-import { TodoClientEventSchema, TodoServiceEventSchema } from "./todo.schemas";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoServiceEventSchema,
+  TodoInputPropsSchema,
+} from "./todo.schemas";
 
 export const Todo = createMachineServer({
-  createMachine: createTodoListMachine,
-  eventSchemas: {
-    client: TodoClientEventSchema,
-    service: TodoServiceEventSchema,
+  machine: todoMachine,
+  schemas: {
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
   },
   options: {
     persisted: true,
@@ -545,85 +586,143 @@ These examples showcase how to integrate Actor Kit with different frameworks, de
 
 ## 📖 API Reference
 
-### 🔧 `actor-kit/worker`
+### 🔧 actor-kit/worker
 
-#### `createMachineServer<TMachine, TEventSchemas, Env>({ createMachine, eventSchemas, options })`
+The `actor-kit/worker` package provides the core functionality for running state machines in Cloudflare Workers. It includes utilities for creating machine servers and routing requests.
 
-Creates an actor server to run on a Cloudflare Worker.
+#### `createMachineServer<TClientEvent, TServiceEvent, TInputSchema, TMachine, Env>(props)`
 
-- `TMachine`: Type parameter extending `ActorKitStateMachine`
-- `TEventSchemas`: Type parameter extending `EventSchemas`
-- `Env`: Type parameter extending `{ ACTOR_KIT_SECRET: string }`
+Creates a server instance of a state machine that runs in a Cloudflare Worker Durable Object.
 
 Parameters:
-
-- `createMachine`: Function that creates the state machine. It receives the following props:
-  ```typescript
-  {
-    id: string;
-    caller: Caller;
-  }
-  ```
-- `eventSchemas`: Object containing Zod schemas for different event types.
-  - `client`: Schema for events from clients
-  - `service`: Schema for events from services
-- `options`: (Optional) Additional options for the server.
-  - `persisted`: Whether to persist the actor state (default: false)
-
-Returns a class that extends `DurableObject` and implements `ActorServer<TMachine, TEventSchemas, Env>`.
+- `machine`: The XState machine to run on the server
+- `schemas`: Zod schemas for validating events and input
+  - `clientEvent`: Schema for events from clients
+  - `serviceEvent`: Schema for events from trusted services
+  - `inputProps`: Schema for initialization props
+- `options`: Configuration options
+  - `persisted`: Whether to persist state to storage (default: false)
 
 Example usage:
 
 ```typescript
+// src/todo.server.ts
 import { createMachineServer } from "actor-kit/worker";
-import { z } from "zod";
+import { todoMachine } from "./todo.machine";
+import {
+  TodoClientEventSchema,
+  TodoInputPropsSchema,
+  TodoServiceEventSchema,
+} from "./todo.schemas";
 
-const TodoServer = createMachineServer({
-  createMachine: ({ id, caller }) => createTodoMachine({ id, caller }),
-  eventSchemas: {
-    client: z.discriminatedUnion("type", [
-      z.object({ type: z.literal("ADD_TODO"), text: z.string() }),
-      z.object({ type: z.literal("TOGGLE_TODO"), id: z.string() }),
-    ]),
-    service: z.discriminatedUnion("type", [
-      z.object({
-        type: z.literal("SYNC_TODOS"),
-        todos: z.array(
-          z.object({ id: z.string(), text: z.string(), completed: z.boolean() })
-        ),
-      }),
-    ]),
+export const Todo = createMachineServer({
+  machine: todoMachine,
+  schemas: {
+    clientEvent: TodoClientEventSchema,
+    serviceEvent: TodoServiceEventSchema,
+    inputProps: TodoInputPropsSchema,
   },
-  options: { persisted: true },
+  options: {
+    persisted: true,
+  },
 });
+
+export type TodoServer = InstanceType<typeof Todo>;
+export default Todo;
 ```
+
+Then set up your Cloudflare Worker to use the server:
+
+```typescript
+// src/server.ts
+import { DurableObjectNamespace } from "@cloudflare/workers-types";
+import { AnyActorServer } from "actor-kit";
+import { createActorKitRouter } from "actor-kit/worker";
+import { WorkerEntrypoint } from "cloudflare:workers";
+import { Todo, TodoServer } from "./todo.server";
+
+// Define environment interface with your Durable Object bindings
+interface Env {
+  TODO: DurableObjectNamespace<TodoServer>;
+  ACTOR_KIT_SECRET: string;
+  [key: string]: DurableObjectNamespace<AnyActorServer> | unknown;
+}
+
+// Create router with your actor types
+const router = createActorKitRouter<Env>(["todo"]);
+
+// Export your Durable Object class
+export { Todo };
+
+// Create your Worker
+export default class Worker extends WorkerEntrypoint<Env> {
+  fetch(request: Request): Promise<Response> | Response {
+    if (request.url.includes("/api/")) {
+      return router(request, this.env, this.ctx);
+    }
+
+    return new Response("API powered by ActorKit");
+  }
+}
+```
+
+Configure your `wrangler.toml`:
+
+```toml
+name = "your-project"
+main = "src/server.ts"
+compatibility_date = "2024-09-25"
+
+[vars]
+ACTOR_KIT_SECRET = "your-secret-key"
+
+[[durable_objects.bindings]]
+name = "TODO"
+class_name = "Todo"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Todo"]
+```
+
+The key components are:
+1. Create your machine server with `createMachineServer`
+2. Set up your Worker environment interface with Durable Object bindings
+3. Create a router with your actor types
+4. Export your Durable Object class
+5. Create your Worker class that uses the router
+6. Configure wrangler.toml with your Durable Object bindings
 
 #### `createActorKitRouter<Env>(routes)`
 
 Creates a router for handling Actor Kit requests in a Cloudflare Worker.
 
-- `Env: Type parameter extending `EnvWithDurableObjects`
-- `routes`: An array of actor types (as kebab-case strings)
+Parameters:
+- `routes`: Array of actor type strings (e.g., `["todo", "game"]`)
+- `Env`: Type parameter for your Worker's environment bindings
 
-Returns a function `(request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>` that handles Actor Kit routing.
+Returns a function that handles HTTP requests and routes them to the appropriate actor.
 
 Example usage:
 
 ```typescript
-import { createActorKitRouter } from "actor-kit/worker";
-
-const actorKitRouter = createActorKitRouter(["todo", "chat"]);
+const router = createActorKitRouter<Env>(["todo"]);
 
 export default {
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    return actorKitRouter(request, env, ctx);
-  },
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    if (request.url.includes("/api/")) {
+      return router(request, env, ctx);
+    }
+    return new Response("API powered by ActorKit");
+  }
 };
 ```
+
+The router handles:
+- Actor creation and initialization
+- Event routing to the correct actor
+- Access token validation
+- WebSocket connections for real-time updates 
 
 ### 🖥️ `actor-kit/server`
 
@@ -806,11 +905,46 @@ await client.connect();
 client.send({ type: "ADD_TODO", text: "Buy milk" });
 ```
 
+#### `ActorKitClient` Methods
+
+- **`connect()`**: Establishes connection to the actor server
+- **`disconnect()`**: Closes the connection to the actor server
+- **`send(event)`**: Sends an event to the actor
+- **`getState()`**: Returns the current state snapshot
+- **`subscribe(listener)`**: Registers a listener for state changes
+- **`waitFor(predicateFn, timeoutMs?)`**: Waits for a state condition to be met
+
+##### Using `waitFor`
+
+The `waitFor` method allows you to wait for specific state conditions:
+
+```typescript
+import { createActorKitClient } from 'actor-kit/browser';
+
+const client = createActorKitClient<TodoMachine>({
+  // ... client config
+});
+
+// Wait for a specific state value
+await client.waitFor(state => state.value === 'ready');
+
+// Wait for a condition with custom timeout
+await client.waitFor(
+  state => state.public.todos.length > 0,
+  10000 // 10 seconds
+);
+
+// Wait for complex conditions
+await client.waitFor(state => 
+  state.public.todos.some(todo => todo.text === 'Buy milk' && todo.completed)
+);
+```
+
 ### ⚛️ `actor-kit/react`
 
 #### `createActorKitContext<TMachine>(actorType: string)`
 
-Creates a React context and associated hooks for integrating Actor Kit into a React application.
+Creates a React context and associated hooks and components for integrating Actor Kit into a React application.
 
 - `TMachine`: Type parameter extending `ActorKitStateMachine`
 - `actorType`: String identifier for the actor type
@@ -821,6 +955,8 @@ Returns an object with:
 - `useClient()`: Hook to access the Actor Kit client directly
 - `useSelector<T>(selector: (snapshot: CallerSnapshotFrom<TMachine>) => T)`: Hook to select and subscribe to specific parts of the state
 - `useSend()`: Hook to get a function for sending events to the Actor Kit client
+- `useMatches(stateValue: StateValueFrom<TMachine>)`: Hook to check if the current state matches a given state value
+- `Matches`: Component for conditionally rendering based on state matches
 
 Example usage:
 
@@ -851,21 +987,305 @@ function App() {
 function TodoList() {
   const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
   const send = TodoActorKitContext.useSend();
+  const isIdle = TodoActorKitContext.useMatches("idle");
 
   return (
-    <ul>
-      {todos.map((todo) => (
-        <li key={todo.id}>
-          {todo.text}
-          <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
-            Toggle
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div>
+      {isIdle && <p>The todo list is idle</p>}
+      <ul>
+        {todos.map((todo) => (
+          <li key={todo.id}>
+            {todo.text}
+            <button onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}>
+              Toggle
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 ```
+
+#### `useClient()`
+
+Hook to access the Actor Kit client directly.
+
+Example usage:
+
+```tsx
+function TodoActions() {
+  const client = TodoActorKitContext.useClient();
+
+  const handleClearCompleted = () => {
+    client.send({ type: "CLEAR_COMPLETED" });
+  };
+
+  return <button onClick={handleClearCompleted}>Clear Completed</button>;
+}
+```
+
+#### `useSelector<T>(selector: (snapshot: CallerSnapshotFrom<TMachine>) => T)`
+
+Hook to select and subscribe to specific parts of the state.
+
+Example usage:
+
+```tsx
+function CompletedTodosCount() {
+  const completedCount = TodoActorKitContext.useSelector(
+    (state) => state.public.todos.filter((todo) => todo.completed).length
+  );
+
+  return <span>Completed todos: {completedCount}</span>;
+}
+```
+
+#### `useSend()`
+
+Hook to get a function for sending events to the Actor Kit client.
+
+Example usage:
+
+```tsx
+function AddTodoForm() {
+  const [text, setText] = useState("");
+  const send = TodoActorKitContext.useSend();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (text.trim()) {
+      send({ type: "ADD_TODO", text: text.trim() });
+      setText("");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Add a new todo"
+      />
+      <button type="submit">Add</button>
+    </form>
+  );
+}
+```
+
+#### `useMatches(stateValue: StateValueFrom<TMachine>)`
+
+Hook to check if the current state matches a given state value.
+
+Example usage:
+
+```tsx
+function LoadingIndicator() {
+  const isLoading = TodoActorKitContext.useMatches("loading");
+
+  return isLoading ? <div>Loading...</div> : null;
+}
+```
+
+#### `Matches` Component
+
+The `Matches` component allows for conditional rendering based on the current state of the actor machine.
+
+Props:
+
+- `state: StateValueFrom<TMachine>`: The state value to match against
+- `and?: StateValueFrom<TMachine>`: Optional additional state to match (AND condition)
+- `or?: StateValueFrom<TMachine>`: Optional alternative state to match (OR condition)
+- `not?: boolean`: Invert the match result if true
+- `children: ReactNode`: Content to render when the condition is met
+- `initialValueOverride?: boolean`: Optional override for the initial render value
+
+Example usage:
+
+````tsx
+function TodoList() {
+  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
+  const send = TodoActorKitContext.useSend();
+
+  return (
+    <div>
+      <TodoActorKitContext.Matches state="idle">
+        <p>The todo list is idle</p>
+      </TodoActorKitContext.Matches>
+      <TodoActorKitContext.Matches state="loading">
+        <p>Loading todos...</p>
+      </TodoActorKitContext.Matches>
+      <TodoActorKitContext.Matches state="error" not>
+        <ul>
+          {todos.map((todo) => (
+            <li key={todo.id}>
+              {todo.text}
+              <button
+                onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}
+              >
+                Toggle
+              </button>
+            </li>
+          ))}
+        </ul>
+      </TodoActorKitContext.Matches>
+    </div>
+  );
+}
+````
+
+You can also use the `Matches` component with more complex conditions:
+
+````tsx
+function TodoList() {
+  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
+  const send = TodoActorKitContext.useSend();
+
+  return (
+    <div>
+      <TodoActorKitContext.Matches state="idle" or="ready">
+        <p>The todo list is ready for action</p>
+      </TodoActorKitContext.Matches>
+      <TodoActorKitContext.Matches state="loading" and={{ data: "fetching" }}>
+        <p>Fetching todos from the server...</p>
+      </TodoActorKitContext.Matches>
+      <TodoActorKitContext.Matches state="error" not>
+        <ul>
+          {todos.map((todo) => (
+            <li key={todo.id}>
+              {todo.text}
+              <button
+                onClick={() => send({ type: "TOGGLE_TODO", id: todo.id })}
+              >
+                Toggle
+              </button>
+            </li>
+          ))}
+        </ul>
+      </TodoActorKitContext.Matches>
+    </div>
+  );
+}
+````
+
+### 🧪 actor-kit/test
+
+#### `createActorKitMockClient<TMachine>(props: ActorKitMockClientProps<TMachine>)`
+
+Creates a mock client for testing Actor Kit state machines without needing a live server.
+
+Parameters:
+- `initialSnapshot`: Initial state snapshot for the mock client
+- `onSend?`: Optional callback function invoked whenever an event is sent
+
+Returns a mock client that implements the standard `ActorKitClient` interface plus additional testing utilities:
+- All standard client methods (send, subscribe, etc.)
+- `produce(recipe: (draft: Draft<CallerSnapshotFrom<TMachine>>) => void)`: Method for directly manipulating state using Immer
+
+Example usage:
+
+````typescript
+import { createActorKitMockClient } from 'actor-kit/test';
+import type { TodoMachine } from './todo.machine';
+
+describe('Todo State Management', () => {
+  it('should handle state transitions', () => {
+    const mockClient = createActorKitMockClient<TodoMachine>({
+      initialSnapshot: {
+        public: { 
+          todos: [],
+          status: 'idle'
+        },
+        private: {},
+        value: 'idle'
+      }
+    });
+
+    // Use Immer's produce to update state
+    mockClient.produce((draft) => {
+      draft.public.todos.push({
+        id: '1',
+        text: 'Test todo',
+        completed: false
+      });
+    });
+
+    expect(mockClient.getState().public.todos).toHaveLength(1);
+  });
+
+  it('should track sent events', () => {
+    const sendSpy = vi.fn();
+    const mockClient = createActorKitMockClient<TodoMachine>({
+      initialSnapshot: { /* ... */ },
+      onSend: sendSpy
+    });
+
+    mockClient.send({ type: 'ADD_TODO', text: 'Test todo' });
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: 'ADD_TODO',
+      text: 'Test todo'
+    });
+  });
+});
+````
+
+### 📚 actor-kit/storybook
+
+#### `withActorKit<TMachine>({ actorType, context })`
+
+Creates a Storybook decorator for testing components that depend on Actor Kit state.
+
+Parameters:
+- `actorType`: String identifier for the actor type
+- `context`: The Actor Kit context created by `createActorKitContext`
+
+Returns a Storybook decorator function.
+
+Example usage:
+
+````typescript
+import { withActorKit } from 'actor-kit/storybook';
+import { GameContext } from './game.context';
+import type { GameMachine } from './game.machine';
+
+const meta = {
+  title: 'Components/GameView',
+  component: GameView,
+  decorators: [
+    withActorKit<GameMachine>({
+      actorType: "game",
+      context: GameContext,
+    }),
+  ],
+};
+````
+
+#### `StoryWithActorKit<TMachine>`
+
+A utility type for stories that use Actor Kit state machines. It combines the standard Storybook story type with Actor Kit parameters.
+
+Example usage:
+
+````typescript
+import type { StoryWithActorKit } from 'actor-kit/storybook';
+import type { GameMachine } from './game.machine';
+
+export const GameStory: StoryWithActorKit<GameMachine> = {
+  parameters: {
+    actorKit: {
+      game: {
+        "game-123": {
+          public: { /* initial state */ },
+          private: {},
+          value: "idle"
+        }
+      }
+    }
+  }
+}
+````
+
 
 ### System Events
 
@@ -880,7 +1300,7 @@ Actor Kit includes several system events that are automatically handled by the s
 The `ActorKitSystemEvent` type is defined as follows:
 
 ```typescript
-export type ActorKitSystemEvent = 
+export type ActorKitSystemEvent =
   | { type: "INITIALIZE"; caller: { type: "system" id: string } }
   | { type: "CONNECT"; caller: { type: "system"; id: string }; clientId: string }
   | { type: "DISCONNECT"; caller: { type: "system"; id: string }; clientId: string }
@@ -918,6 +1338,174 @@ createMachine({
   },
 });
 ```
+
+### 🧪 Testing with Mock Client
+
+#### `createActorKitMockClient<TMachine>`
+
+Creates a mock client for testing Actor Kit state machines without needing a live server. It implements the standard `ActorKitClient` interface plus additional testing utilities.
+
+**Type Parameters:**
+- `TMachine`: The type of the state machine, extending `AnyActorKitStateMachine`
+
+**Parameters:**
+- `props: ActorKitMockClientProps<TMachine>`: Configuration options including:
+  - `initialSnapshot`: The initial state snapshot
+  - `onSend?`: Optional callback function invoked whenever an event is sent
+
+**Returns:**
+An `ActorKitMockClient<TMachine>` with all standard client methods plus:
+- `produce(recipe: (draft: Draft<CallerSnapshotFrom<TMachine>>) => void)`: Method for directly manipulating state using Immer
+
+**Basic Example:**
+
+```typescript
+import { createActorKitMockClient } from 'actor-kit/test';
+import type { TodoMachine } from './todo.machine';
+
+describe('Todo State Management', () => {
+  it('should handle state transitions', () => {
+    const mockClient = createActorKitMockClient<TodoMachine>({
+      initialSnapshot: {
+        public: { 
+          todos: [],
+          status: 'idle'
+        },
+        private: {},
+        value: 'idle'
+      }
+    });
+
+    // Use Immer's produce to update state
+    mockClient.produce((draft) => {
+      draft.public.todos.push({
+        id: '1',
+        text: 'Test todo',
+        completed: false
+      });
+      draft.value = 'ready';
+    });
+
+    // Verify state changes
+    expect(mockClient.getState().public.todos).toHaveLength(1);
+    expect(mockClient.getState().value).toBe('ready');
+  });
+});
+```
+
+**Spying on Events:**
+
+```typescript
+import { vi } from 'vitest'; // or jest
+
+describe('Todo Event Handling', () => {
+  it('should track sent events', () => {
+    const sendSpy = vi.fn();
+    const mockClient = createActorKitMockClient<TodoMachine>({
+      initialSnapshot: {
+        public: { 
+          todos: [],
+          status: 'idle'
+        },
+        private: {},
+        value: 'idle'
+      },
+      onSend: sendSpy
+    });
+
+    // Send an event
+    mockClient.send({ type: 'ADD_TODO', text: 'Test todo' });
+
+    // Verify the event was sent
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: 'ADD_TODO',
+      text: 'Test todo'
+    });
+
+    // Check call count
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+
+    // Verify specific event properties
+    const [sentEvent] = sendSpy.mock.calls[0];
+    expect(sentEvent.type).toBe('ADD_TODO');
+    expect(sentEvent.text).toBe('Test todo');
+  });
+
+  it('should track multiple events in order', () => {
+    const sendSpy = vi.fn();
+    const mockClient = createActorKitMockClient<TodoMachine>({
+      initialSnapshot: {
+        public: { 
+          todos: [{ id: '1', text: 'Test todo', completed: false }],
+          status: 'idle'
+        },
+        private: {},
+        value: 'idle'
+      },
+      onSend: sendSpy
+    });
+
+    // Send multiple events
+    mockClient.send({ type: 'TOGGLE_TODO', id: '1' });
+    mockClient.send({ type: 'DELETE_TODO', id: '1' });
+
+    // Verify events were sent in order
+    expect(sendSpy.mock.calls).toEqual([
+      [{ type: 'TOGGLE_TODO', id: '1' }],
+      [{ type: 'DELETE_TODO', id: '1' }]
+    ]);
+  });
+});
+```
+
+**Testing React Components:**
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import { TodoActorKitContext } from './todo.context';
+import { createActorKitMockClient } from 'actor-kit/test';
+
+describe('TodoList', () => {
+  it('renders todos correctly', () => {
+    const mockClient = createActorKitMockClient<TodoMachine>({
+      initialSnapshot: {
+        public: { 
+          todos: [],
+          status: 'idle'
+        },
+        private: {},
+        value: 'idle'
+      }
+    });
+
+    render(
+      <TodoActorKitContext.ProviderFromClient client={mockClient}>
+        <TodoList />
+      </TodoActorKitContext.ProviderFromClient>
+    );
+
+    // Update state using Immer
+    mockClient.produce((draft) => {
+      draft.public.todos.push({
+        id: '1',
+        text: 'Test todo',
+        completed: false
+      });
+    });
+
+    // Verify UI updates
+    expect(screen.getByText('Test todo')).toBeInTheDocument();
+  });
+});
+```
+
+The mock client provides two powerful testing capabilities:
+
+1. **State Manipulation**: The `produce` method uses Immer to allow intuitive, mutable-style updates to the immutable state. This makes it easy to set up different test scenarios.
+
+2. **Event Tracking**: The `onSend` callback can be used with testing framework spies to verify that components are sending the correct events at the right times.
+
+These features make it simple to test both state transitions and component behavior without needing a real server connection.
 
 ## 👥 Caller Types
 
@@ -1013,16 +1601,426 @@ function TodoList({ snapshot }: { snapshot: TodoSnapshot }) {
 }
 ```
 
+#### `ActorKitStateMachine`
+
+Represents the structure of an Actor Kit state machine.
+
+```typescript
+type ActorKitStateMachine<
+  TEvent extends BaseActorKitEvent & EventObject,
+  TInput extends { id: string; caller: Caller },
+  TPrivateProps extends { [key: string]: unknown },
+  TPublicProps extends { [key: string]: unknown }
+> = StateMachine<...>
+```
+
+Example usage:
+
+```typescript
+import { ActorKitStateMachine } from "actor-kit";
+import { setup } from "xstate";
+import type {
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext,
+} from "./todo.types";
+
+export const todoMachine = setup({
+  // ... machine setup
+}).createMachine({
+  // ... machine definition
+}) satisfies ActorKitStateMachine<
+  TodoEvent,
+  TodoInput,
+  TodoPrivateContext,
+  TodoPublicContext
+>;
+```
+
 ### Other Types
 
-- `ActorKitStateMachine`: Type definition for an Actor Kit state machine, extending XState's `StateMachine` type.
-- `ClientEventFrom<TMachine>`: Utility type to extract client events from an Actor Kit state machine.
+- `ClientEventFrom<TMachine extends AnyActorKitStateMachine>`: Utility type to extract client events from an Actor Kit state machine.
+- `ServiceEventFrom<TMachine extends AnyActorKitStateMachine>`: Utility type to extract service events from an Actor Kit state machine.
 
 By including these types in your Actor Kit implementation, you ensure type safety and proper handling of events and state across your application.
 
 ## 🔐 Public and Private Data
 
 Actor Kit supports the concepts of public and private data in the context. This allows you to manage shared data across all clients and caller-specific information securely.
+
+## 📚 Storybook Integration
+
+Actor Kit provides seamless integration with Storybook through the `withActorKit` decorator, allowing you to easily test and develop components that depend on actor state.
+
+### Basic Usage
+
+```typescript
+import { withActorKit } from 'actor-kit/storybook';
+import { GameContext } from './game.context';
+import type { GameMachine } from './game.machine';
+
+const meta = {
+  title: 'Components/GameView',
+  component: GameView,
+  decorators: [
+    withActorKit<GameMachine>({
+      actorType: "game",
+      context: GameContext,
+    }),
+  ],
+};
+
+export default meta;
+type Story = StoryObj<typeof GameView>;
+
+export const Default: Story = {
+  parameters: {
+    actorKit: {
+      game: {
+        "game-123": {
+          public: {
+            players: [],
+            gameStatus: "idle"
+          },
+          private: {},
+          value: "idle"
+        }
+      }
+    }
+  }
+};
+```
+
+### Testing Patterns
+
+There are two main patterns for testing with Actor Kit in Storybook:
+
+#### 1. Static Stories (Using parameters.actorKit)
+
+Best for simple stories that don't need state manipulation:
+
+```typescript
+export const Static: Story = {
+  parameters: {
+    actorKit: {
+      game: {
+        "game-123": {
+          public: { /* initial state */ },
+          private: {},
+          value: "idle"
+        }
+      }
+    }
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // Test UI state...
+  }
+};
+```
+
+#### 2. Interactive Stories (Using mount + direct client)
+
+Better for stories that need to manipulate state:
+
+```typescript
+export const Interactive: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: { /* initial state */ },
+        private: {},
+        value: "idle"
+      }
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <GameView />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Now you can manipulate state
+    client.produce((draft) => {
+      draft.public.players.push({
+        id: "player-1",
+        name: "Player 1"
+      });
+    });
+  }
+};
+```
+
+### Multiple Actors
+
+You can use multiple actors in a single story:
+
+```typescript
+const meta = {
+  decorators: [
+    withActorKit<SessionMachine>({
+      actorType: "session",
+      context: SessionContext,
+    }),
+    withActorKit<GameMachine>({
+      actorType: "game",
+      context: GameContext,
+    }),
+  ],
+};
+
+export const MultipleActors: Story = {
+  parameters: {
+    actorKit: {
+      session: {
+        "session-123": {
+          public: { /* session state */ },
+          private: {},
+          value: "ready"
+        }
+      },
+      game: {
+        "game-123": {
+          public: { /* game state */ },
+          private: {},
+          value: "active"
+        }
+      }
+    }
+  }
+};
+```
+
+### Basic Event Spy Example
+
+```typescript
+import type { Meta, StoryObj } from "@storybook/react";
+import { expect, fn } from "@storybook/test";
+import { createActorKitMockClient } from "actor-kit/test";
+import { GameContext } from "./game.context";
+import type { GameMachine } from "./game.machine";
+
+export const JoinGame: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const sendSpy = fn();
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: {
+          players: [],
+          gameStatus: "lobby"
+        },
+        private: {},
+        value: "lobby"
+      },
+      onSend: sendSpy
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <JoinGameForm />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Find and fill the name input
+    const nameInput = await canvas.findByLabelText("Player Name");
+    await userEvent.type(nameInput, "Test Player");
+
+    // Click the join button
+    const joinButton = await canvas.findByText("Join Game");
+    await userEvent.click(joinButton);
+
+    // Verify the JOIN_GAME event was sent with correct payload
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: "JOIN_GAME",
+      playerName: "Test Player"
+    });
+  }
+};
+```
+
+### Testing Multiple Events in Sequence
+
+```typescript
+export const GameRound: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const sendSpy = fn();
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: {
+          players: [
+            { id: "player-1", name: "Player 1", score: 0 },
+            { id: "player-2", name: "Player 2", score: 0 }
+          ],
+          currentQuestion: {
+            text: "What is 2 + 2?",
+            answer: "4"
+          },
+          gameStatus: "active"
+        },
+        private: {},
+        value: { active: "questionActive" }
+      },
+      onSend: sendSpy
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <GameView />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Test buzzing in
+    const buzzerButton = await canvas.findByText("Buzz In");
+    await userEvent.click(buzzerButton);
+
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: "BUZZ_IN",
+      playerId: "player-1"
+    });
+
+    // Test submitting an answer
+    const answerInput = await canvas.findByLabelText("Your Answer");
+    await userEvent.type(answerInput, "4");
+    
+    const submitButton = await canvas.findByText("Submit Answer");
+    await userEvent.click(submitButton);
+
+    // Verify events were sent in order with correct payloads
+    expect(sendSpy.mock.calls).toEqual([
+      [{ type: "BUZZ_IN", playerId: "player-1" }],
+      [{ type: "SUBMIT_ANSWER", answer: "4" }]
+    ]);
+  }
+};
+```
+
+### Testing Complex Event Payloads
+
+```typescript
+export const GameConfiguration: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const sendSpy = fn();
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: {
+          gameStatus: "setup",
+          config: {
+            maxPlayers: 4,
+            timeLimit: 30,
+            categories: []
+          }
+        },
+        private: {},
+        value: "setup"
+      },
+      onSend: sendSpy
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <GameConfigForm />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Fill out configuration form
+    await userEvent.selectOptions(
+      await canvas.findByLabelText("Max Players"),
+      "6"
+    );
+    
+    await userEvent.selectOptions(
+      await canvas.findByLabelText("Time Limit"),
+      "60"
+    );
+
+    const categoryCheckboxes = await canvas.findAllByRole("checkbox");
+    await userEvent.click(categoryCheckboxes[0]); // Select "History"
+    await userEvent.click(categoryCheckboxes[2]); // Select "Science"
+
+    const saveButton = await canvas.findByText("Save Configuration");
+    await userEvent.click(saveButton);
+
+    // Verify the UPDATE_CONFIG event was sent with the exact payload structure
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: "UPDATE_CONFIG",
+      config: {
+        maxPlayers: 6,
+        timeLimit: 60,
+        categories: ["history", "science"]
+      }
+    });
+
+    // You can also use partial matching for complex objects
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "UPDATE_CONFIG",
+        config: expect.objectContaining({
+          maxPlayers: 6,
+          categories: expect.arrayContaining(["history", "science"])
+        })
+      })
+    );
+  }
+};
+```
+
+### Testing Event Properties with Custom Matchers
+
+```typescript
+export const ChatMessage: Story = {
+  play: async ({ canvasElement, mount }) => {
+    const sendSpy = fn();
+    const client = createActorKitMockClient<GameMachine>({
+      initialSnapshot: {
+        public: {
+          messages: [],
+          gameStatus: "active"
+        },
+        private: {},
+        value: "active"
+      },
+      onSend: sendSpy
+    });
+
+    await mount(
+      <GameContext.ProviderFromClient client={client}>
+        <ChatBox />
+      </GameContext.ProviderFromClient>
+    );
+
+    // Send a chat message
+    const messageInput = await canvas.findByLabelText("Message");
+    await userEvent.type(messageInput, "Hello, world!");
+    
+    const sendButton = await canvas.findByText("Send");
+    await userEvent.click(sendButton);
+
+    // Verify the SEND_MESSAGE event with timestamp
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: "SEND_MESSAGE",
+      text: "Hello, world!",
+      timestamp: expect.any(Number),
+      sender: expect.objectContaining({
+        id: expect.any(String),
+        name: expect.any(String)
+      })
+    });
+
+    // You can also create custom matchers for common patterns
+    const isValidMessage = (event: any) => {
+      return (
+        event.type === "SEND_MESSAGE" &&
+        typeof event.text === "string" &&
+        typeof event.timestamp === "number" &&
+        Date.now() - event.timestamp < 1000 // Message was sent within last second
+      );
+    };
+
+    expect(sendSpy).toHaveBeenCalledWith(expect.custom(isValidMessage));
+  }
+};
+```
 
 ## 📜 License
 
@@ -1036,6 +2034,7 @@ Actor Kit builds upon and draws inspiration from several excellent technologies:
 - [Cloudflare Workers](https://workers.cloudflare.com/): A serverless platform for building and deploying applications at the edge.
 - [Zod](https://zod.dev/): A TypeScript-first schema declaration and validation library.
 - [PartyKit](https://www.partykit.io/): An inspiration for Actor Kit, providing real-time multiplayer infrastructure.
+- [PartyServer](https://github.com/threepointone/partyserver/tree/main): PartyKit, for workers
 - [xstate-migrate](https://github.com/jonmumm/xstate-migrate): A migration library for persisted XState machines, designed to facilitate state machine migrations when updating your XState configurations.
 
 ## 🚧 Development Status

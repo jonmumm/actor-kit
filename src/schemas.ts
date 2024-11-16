@@ -39,33 +39,29 @@ export const AnyEventSchema = z.object({
   type: z.string(),
 });
 
-export const BaseEventSchema = AnyEventSchema.extend({
-  caller: CallerSchema,
-});
-
 export const SystemEventSchema = z.discriminatedUnion("type", [
-  z.object({ 
+  z.object({
     type: z.literal("INITIALIZE"),
-    caller: z.object({ type: z.literal("system"), id: z.string() })
+    caller: z.object({ type: z.literal("system"), id: z.string() }),
   }),
-  z.object({ 
+  z.object({
     type: z.literal("CONNECT"),
     caller: z.object({ type: z.literal("system"), id: z.string() }),
-    connectingCaller: CallerSchema
+    connectingCaller: CallerSchema,
   }),
-  z.object({ 
+  z.object({
     type: z.literal("DISCONNECT"),
     caller: z.object({ type: z.literal("system"), id: z.string() }),
-    disconnectingCaller: CallerSchema
+    disconnectingCaller: CallerSchema,
   }),
-  z.object({ 
+  z.object({
     type: z.literal("RESUME"),
-    caller: z.object({ type: z.literal("system"), id: z.string() })
+    caller: z.object({ type: z.literal("system"), id: z.string() }),
   }),
-  z.object({ 
+  z.object({
     type: z.literal("MIGRATE"),
     caller: z.object({ type: z.literal("system"), id: z.string() }),
-    operations: z.array(z.any())
+    operations: z.array(z.any()),
   }),
 ]);
 

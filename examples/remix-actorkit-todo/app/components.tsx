@@ -1,18 +1,18 @@
 "use client";
 
-import React, { useContext, useState } from "react";
-import { TodoActorKitContext } from "./todo.context";
-import { UserContext } from "./user.context";
+import { Link } from "@remix-run/react";
+import React, { useState } from "react";
+import { SessionContext } from "./session.context";
+import { TodoContext } from "./todo.context";
 
 export function TodoList() {
-  const todos = TodoActorKitContext.useSelector((state) => state.public.todos);
-  const send = TodoActorKitContext.useSend();
+  const todos = TodoContext.useSelector((state) => state.public.todos);
+  const send = TodoContext.useSend();
   const [newTodoText, setNewTodoText] = useState("");
 
-  const userId = useContext(UserContext);
-  const ownerId = TodoActorKitContext.useSelector(
-    (state) => state.public.ownerId
-  );
+  const userId = SessionContext.useSelector((state) => state.public.userId);
+
+  const ownerId = TodoContext.useSelector((state) => state.public.ownerId);
   const isOwner = ownerId === userId;
 
   const handleAddTodo = (e: React.FormEvent) => {
@@ -25,7 +25,9 @@ export function TodoList() {
 
   return (
     <div>
+      <Link to="/">⬅ Home</Link>
       <h1>Todo List</h1>
+
       {isOwner && (
         <form onSubmit={handleAddTodo}>
           <input

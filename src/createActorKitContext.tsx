@@ -2,69 +2,72 @@
 
 import React, {
   createContext,
+  memo,
   ReactNode,
   useCallback,
   useContext,
   useEffect,
   useMemo,
   useRef,
-  useState,
   useSyncExternalStore,
 } from "react";
-import type {
-  ActorKitClient,
-  ActorKitClientProps,
-} from "./createActorKitClient";
+import { matchesState, StateValueFrom } from "xstate";
+import type { ActorKitClientProps } from "./createActorKitClient";
 import { createActorKitClient } from "./createActorKitClient";
 import type {
-  ActorKitStateMachine,
+  ActorKitClient,
+  AnyActorKitStateMachine,
   CallerSnapshotFrom,
   ClientEventFrom,
+  MatchesProps,
 } from "./types";
 
-export function createActorKitContext<TMachine extends ActorKitStateMachine>(
+export function createActorKitContext<TMachine extends AnyActorKitStateMachine>(
   actorType: string
 ) {
   const ActorKitContext = createContext<ActorKitClient<TMachine> | null>(null);
 
-  const Provider: React.FC<
-    {
-      children: ReactNode;
-    } & Omit<ActorKitClientProps<TMachine>, "actorType">
-  > = ({ children, ...props }) => {
-    const connectedRef = useRef<boolean>(false);
-    const clientConfig = useMemo(
-      () => ({
-        ...props,
-        actorType,
-      }),
-      [
-        props.host,
-        props.actorId,
-        props.accessToken,
-        props.checksum,
-        props.initialSnapshot,
-        actorType,
-      ]
-    );
-
-    const [client] = useState(() => {
-      return createActorKitClient<TMachine>(clientConfig);
-    });
-
-    useEffect(() => {
-      if (!connectedRef.current) {
-        client.connect().then(() => {});
-        connectedRef.current = true;
-      }
-    }, [client, connectedRef]); // Use memoized config as dependency
-
+  const ProviderFromClient: React.FC<{
+    children: ReactNode;
+    client: ActorKitClient<TMachine>;
+  }> = ({ children, client }) => {
     return (
       <ActorKitContext.Provider value={client}>
         {children}
       </ActorKitContext.Provider>
     );
   };
+
+  const Provider: React.FC<
+    {
+      children: ReactNode;
+    } & Omit<ActorKitClientProps<TMachine>, "actorType">
+  > = memo((props) => {
+    const clientRef = useRef(
+      createActorKitClient<TMachine>({
+        host: props.host,
+        actorId: props.actorId,
+        accessToken: props.accessToken,
+        checksum: props.checksum,
+        initialSnapshot: props.initialSnapshot,
+        actorType,
+      })
+    );
+    const initializedRef = useRef(false);
+
+    useEffect(() => {
+      if (!initializedRef.current) {
+        initializedRef.current = true;
+        clientRef.current.connect().then(() => {});
+      }
+    }, [initializedRef]);
+
+    return (
+      <ActorKitContext.Provider value={clientRef.current}>
+        {props.children}
+      </ActorKitContext.Provider>
+    );
+  });
 
   function useClient(): ActorKitClient<TMachine> {
     const client = useContext(ActorKitContext);
@@ -95,11 +98,63 @@ export function createActorKitContext<TMachine extends ActorKitStateMachine>(
     return client.send;
   }
 
+  function useMatches(stateValue: StateValueFrom<TMachine>): boolean {
+    return useSelector((state) => matchesState(stateValue, state.value as any));
+  }
+
+  const Matches: React.FC<MatchesProps<TMachine> & { children: ReactNode }> & {
+    create: (
+      state: StateValueFrom<TMachine>,
+      options?: {
+        and?: StateValueFrom<TMachine>;
+        or?: StateValueFrom<TMachine>;
+        not?: boolean;
+      }
+    ) => React.FC<
+      Omit<MatchesProps<TMachine>, "state" | "and" | "or" | "not"> & {
+        children: ReactNode;
+      }
+    >;
+  } = (props) => {
+    const active = useMatches(props.state);
+    const matchesAnd = props.and ? useMatches(props.and) : true;
+    const matchesOr = props.or ? useMatches(props.or) : false;
+    const value =
+      typeof props.initialValueOverride === "boolean"
+        ? props.initialValueOverride
+        : (active && matchesAnd) || matchesOr;
+    const finalValue = props.not ? !value : value;
+    return finalValue ? <>{props.children}</> : null;
+  };
+
+  Matches.create = (state, options = {}) => {
+    const Component: React.FC<
+      Omit<MatchesProps<TMachine>, "state" | "and" | "or" | "not"> & {
+        children: ReactNode;
+      }
+    > = ({ children, initialValueOverride }) => (
+      <Matches
+        state={state}
+        and={options.and}
+        or={options.or}
+        not={options.not}
+        initialValueOverride={initialValueOverride}
+      >
+        {children}
+      </Matches>
+    );
+    Component.displayName = `MatchesComponent(${state.toString()})`;
+    return Component;
+  };
+
   return {
     Provider,
+    ProviderFromClient,
     useClient,
     useSelector,
     useSend,
+    useMatches,
+    Matches,
   };
 }
 

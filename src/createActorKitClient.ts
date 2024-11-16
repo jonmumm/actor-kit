@@ -2,12 +2,14 @@ import { applyPatch } from "fast-json-patch";
 import { produce } from "immer";
 
 import {
-  ActorKitStateMachine,
+  ActorKitClient,
+  ActorKitEmittedEvent,
+  AnyActorKitStateMachine,
   CallerSnapshotFrom,
   ClientEventFrom,
 } from "./types";
 
-export type ActorKitClientProps<TMachine extends ActorKitStateMachine> = {
+export type ActorKitClientProps<TMachine extends AnyActorKitStateMachine> = {
   host: string;
   actorType: string;
   actorId: string;
@@ -16,16 +18,6 @@ export type ActorKitClientProps<TMachine extends ActorKitStateMachine> = {
   initialSnapshot: CallerSnapshotFrom<TMachine>;
   onStateChange?: (newState: CallerSnapshotFrom<TMachine>) => void;
   onError?: (error: Error) => void;
-};
-
-export type ActorKitClient<TMachine extends ActorKitStateMachine> = {
-  connect: () => Promise<void>;
-  disconnect: () => void;
-  send: (event: ClientEventFrom<TMachine>) => void;
-  getState: () => CallerSnapshotFrom<TMachine>;
-  subscribe: (
-    listener: (state: CallerSnapshotFrom<TMachine>) => void
-  ) => () => void;
 };
 
 type Listener<T> = (state: T) => void;
@@ -37,7 +29,7 @@ type Listener<T> = (state: T) => void;
  * @param {ActorKitClientProps<TMachine>} props - Configuration options for the client.
  * @returns {ActorKitClient<TMachine>} An object with methods to interact with the actor.
  */
-export function createActorKitClient<TMachine extends ActorKitStateMachine>(
+export function createActorKitClient<TMachine extends AnyActorKitStateMachine>(
   props: ActorKitClientProps<TMachine>
 ): ActorKitClient<TMachine> {
   let currentSnapshot = props.initialSnapshot;
@@ -68,13 +60,16 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
 
     socket.addEventListener("message", (event: MessageEvent) => {
       try {
-        const { operations, checksum } = JSON.parse(
-          typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data)
-        );
-        // todo use the checksum to store snapshot locally for local sync
+        const data = JSON.parse(
+          typeof event.data === "string"
+            ? event.data
+            : new TextDecoder().decode(event.data)
+        ) as ActorKitEmittedEvent;
+
         currentSnapshot = produce(currentSnapshot, (draft) => {
-          applyPatch(draft, operations);
+          applyPatch(draft, data.operations);
         });
+
         props.onStateChange?.(currentSnapshot);
         notifyListeners();
       } catch (error) {
@@ -155,12 +150,53 @@ export function createActorKitClient<TMachine extends ActorKitStateMachine>(
     };
   };
 
+  /**
+   * Waits for a state condition to be met.
+   * @param {(state: CallerSnapshotFrom<TMachine>) => boolean} predicateFn - Function that returns true when condition is met
+   * @param {number} [timeoutMs=5000] - Maximum time to wait in milliseconds
+   * @returns {Promise<void>} Resolves when condition is met, rejects on timeout
+   */
+  const waitFor = async (
+    predicateFn: (state: CallerSnapshotFrom<TMachine>) => boolean,
+    timeoutMs: number = 5000
+  ): Promise<void> => {
+    // Check if condition is already met
+    if (predicateFn(currentSnapshot)) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      let timeoutId: number | null = null;
+
+      // Set up timeout to reject if condition isn't met in time
+      if (timeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+          unsubscribe();
+          reject(
+            new Error(`Timeout waiting for condition after ${timeoutMs}ms`)
+          );
+        }, timeoutMs);
+      }
+
+      // Subscribe to state changes
+      const unsubscribe = subscribe((state) => {
+        if (predicateFn(state)) {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  };
+
   return {
     connect,
     disconnect,
     send,
     getState,
     subscribe,
+    waitFor,
   };
 }
 

@@ -1,29 +1,34 @@
 // Import necessary dependencies and types
 import { DurableObject } from "cloudflare:workers";
 import { compare } from "fast-json-patch";
-import type { StateValueFrom } from "xstate";
 import {
   Actor,
+  AnyEventObject,
   createActor,
+  InputFrom,
   matchesState,
   SnapshotFrom,
+  StateValueFrom,
   Subscription,
 } from "xstate";
+import { xstateMigrate } from "xstate-migrate";
 import { z } from "zod";
 import { PERSISTED_SNAPSHOT_KEY } from "./constants";
 import { CallerSchema } from "./schemas";
 import {
+  ActorKitInputProps,
   ActorKitStateMachine,
+  ActorKitSystemEvent,
   ActorServer,
   Caller,
   CallerSnapshotFrom,
   ClientEventFrom,
-  CreateMachineProps,
-  EventSchemas,
   MachineServerOptions,
   ServiceEventFrom,
+  WithActorKitContext,
+  WithActorKitEvent,
 } from "./types";
-import { applyMigrations, assert, getCallerFromRequest } from "./utils";
+import { assert, getCallerFromRequest } from "./utils";
 
 // Define schemas for storage and WebSocket attachments
 const StorageSchema = z.object({
@@ -44,25 +49,46 @@ type WebSocketAttachment = z.infer<typeof WebSocketAttachmentSchema>;
  * This function is the main entry point for creating a machine server.
  */
 export const createMachineServer = <
-  TMachine extends ActorKitStateMachine,
-  TEventSchemas extends EventSchemas,
-  Env extends { ACTOR_KIT_SECRET: string }
+  TClientEvent extends AnyEventObject,
+  TServiceEvent extends AnyEventObject,
+  TInputSchema extends z.ZodObject<z.ZodRawShape>,
+  TMachine extends ActorKitStateMachine<
+    (
+      | WithActorKitEvent<TClientEvent, "client">
+      | WithActorKitEvent<TServiceEvent, "service">
+      | ActorKitSystemEvent
+    ) & {
+      storage: DurableObjectStorage;
+      env: TEnv;
+    },
+    z.infer<TInputSchema> & {
+      id: string;
+      caller: Caller;
+      storage: DurableObjectStorage;
+    },
+    WithActorKitContext<any, any, any>
+  >,
+  TEnv extends { ACTOR_KIT_SECRET: string }
 >({
-  createMachine,
-  eventSchemas,
+  machine,
+  schemas,
   options,
 }: {
-  createMachine: (props: CreateMachineProps) => TMachine;
-  eventSchemas: TEventSchemas;
+  machine: TMachine;
+  schemas: {
+    clientEvent: z.ZodSchema<TClientEvent>;
+    serviceEvent: z.ZodSchema<TServiceEvent>;
+    inputProps: TInputSchema;
+  };
   options?: MachineServerOptions;
 }): new (
   state: DurableObjectState,
-  env: Env,
+  env: TEnv,
   ctx: ExecutionContext
-) => ActorServer<TMachine, TEventSchemas, Env> =>
+) => ActorServer<TMachine> =>
   class MachineServerImpl
     extends DurableObject
-    implements ActorServer<TMachine, TEventSchemas, Env>
+    implements ActorServer<TMachine>
   {
     // Class properties
     actor: Actor<TMachine> | undefined;
@@ -80,14 +106,14 @@ export const createMachineServer = <
     storage: DurableObjectStorage;
     attachments: Map<WebSocket, WebSocketAttachment>;
     subscriptions: Map<WebSocket, Subscription>;
-    env: Env;
+    env: TEnv;
     currentChecksum: string | null = null;
 
     /**
      * Constructor for the MachineServerImpl class.
      * Initializes the server and sets up WebSocket connections.
      */
-    constructor(state: DurableObjectState, env: Env, ctx: ExecutionContext) {
+    constructor(state: DurableObjectState, env: TEnv, ctx: ExecutionContext) {
       super(state, env);
       this.state = state;
       this.storage = state.storage;
@@ -160,13 +186,14 @@ export const createMachineServer = <
 
       if (!this.actor) {
         console.debug(`[${this.actorId}] Creating new actor`);
-        const props = {
+        const input = {
           id: this.actorId,
           caller: this.initialCaller,
+          env: this.env,
+          storage: this.storage,
           ...this.input,
-        } as CreateMachineProps;
-        const machine = createMachine(props as any);
-        this.actor = createActor(machine, { input: props } as any);
+        } satisfies ActorKitInputProps;
+        this.actor = createActor(machine, { input } as any);
 
         if (options?.persisted) {
           console.debug(
@@ -237,20 +264,6 @@ export const createMachineServer = <
           ws.serializeAttachment(attachment);
         }
       }
-    }
-
-    /**
-     * Creates and initializes an actor with the given properties.
-     * @private
-     */
-    #createAndInitializeActor(props: CreateMachineProps) {
-      const machine = createMachine({ ...props } as any);
-      const actor = createActor(machine, { input: props } as any);
-      if (options?.persisted) {
-        this.#setupStatePersistence(actor);
-      }
-      actor.start();
-      return actor;
     }
 
     /**
@@ -351,7 +364,7 @@ export const createMachineServer = <
 
       const { caller } = attachment;
       if (caller.type === "client") {
-        const clientEvent = eventSchemas.client.parse(
+        const clientEvent = schemas.clientEvent.parse(
           JSON.parse(message as string)
         );
         event = {
@@ -359,13 +372,13 @@ export const createMachineServer = <
           caller,
         } as ClientEventFrom<TMachine>;
       } else if (caller.type === "service") {
-        const serviceEvent = eventSchemas.client.parse(
+        const serviceEvent = schemas.serviceEvent.parse(
           JSON.parse(message as string)
         );
         event = {
           ...serviceEvent,
           caller,
-        } as ClientEventFrom<TMachine>;
+        } as ServiceEventFrom<TMachine>;
       } else {
         throw new Error(`Unknown caller type: ${caller.type}`);
       }
@@ -409,7 +422,11 @@ export const createMachineServer = <
      */
     send(event: ClientEventFrom<TMachine> | ServiceEventFrom<TMachine>): void {
       assert(this.actor, "Actor is not running");
-      this.actor.send(event);
+      this.actor.send({
+        ...event,
+        env: this.env,
+        storage: this.storage,
+      });
     }
 
     /**
@@ -614,26 +631,35 @@ export const createMachineServer = <
 
     // Add this method to restore the persisted actor
     restorePersistedActor(persistedSnapshot: SnapshotFrom<TMachine>) {
-      console.debug(`[${this.actorId}] Restoring persisted actor`);
+      console.debug(
+        `[${this.actorId}] Restoring persisted actor from `,
+        persistedSnapshot
+      );
       assert(this.actorId, "actorId is not set");
       assert(this.actorType, "actorType is not set");
       assert(this.initialCaller, "initialCaller is not set");
       assert(this.input, "input is not set");
 
-      const machine = createMachine({
+      const input = {
         id: this.actorId,
         caller: this.initialCaller,
+        storage: this.storage,
         ...this.input,
-      } as CreateMachineProps);
-      const restoredSnapshot = applyMigrations(machine, persistedSnapshot);
+      } as InputFrom<TMachine>;
+
+      const migrations = xstateMigrate.generateMigrations(
+        machine,
+        persistedSnapshot,
+        input
+      );
+      const restoredSnapshot = xstateMigrate.applyMigrations(
+        persistedSnapshot,
+        migrations
+      );
 
       this.actor = createActor(machine, {
         snapshot: restoredSnapshot,
-        input: {
-          id: this.actorId,
-          caller: this.initialCaller,
-          ...this.input,
-        } as any,
+        input,
       });
 
       if (options?.persisted) {
@@ -649,6 +675,8 @@ export const createMachineServer = <
       this.actor.send({
         type: "RESUME",
         caller: { id: this.actorId, type: "system" },
+        env: this.env,
+        storage: this.storage,
       } as any);
       console.debug(`[${this.actorId}] Sent RESUME event to restored actor`);
 
