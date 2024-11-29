@@ -31,10 +31,15 @@ export interface ActorServerMethods<TMachine extends BaseActorKitStateMachine> {
     input: Record<string, unknown>;
   }): void;
   send(event: ClientEventFrom<TMachine> | ServiceEventFrom<TMachine>): void;
-  getSnapshot(caller: Caller): {
+  getSnapshot(caller: Caller, options?: {
+    waitForEvent?: ClientEventFrom<TMachine>;
+    waitForState?: StateValueFrom<TMachine>;
+    timeout?: number;
+    errorOnWaitTimeout?: boolean;
+  }): Promise<{
     checksum: string;
     snapshot: CallerSnapshotFrom<TMachine>;
-  };
+  }>;
 }
 
 export type ActorServer<TMachine extends AnyActorKitStateMachine> =
