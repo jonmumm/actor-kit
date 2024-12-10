@@ -1,6 +1,7 @@
 import type {
   ActorKitSystemEvent,
   BaseActorKitEvent,
+  EnvWithDurableObjects,
   WithActorKitEvent,
   WithActorKitInput,
 } from "actor-kit";
@@ -14,29 +15,28 @@ import {
 export type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
 export type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
 export type TodoInputProps = z.infer<typeof TodoInputPropsSchema>;
+export type TodoInput = WithActorKitInput<TodoInputProps, EnvWithDurableObjects>;
 
 export type TodoEvent = (
   | WithActorKitEvent<TodoClientEvent, "client">
   | WithActorKitEvent<TodoServiceEvent, "service">
   | ActorKitSystemEvent
 ) &
-  BaseActorKitEvent;
+  BaseActorKitEvent<EnvWithDurableObjects>;
 
-export type TodoInput = WithActorKitInput<TodoInputProps>;
-
-export type TodoPrivateContext = {
-  lastAccessTime?: number;
-  userPreferences?: {
-    theme: "light" | "dark";
-    sortOrder: "asc" | "desc";
-  };
+export type Todo = {
+  id: string;
+  text: string;
+  completed: boolean;
 };
 
 export type TodoPublicContext = {
   ownerId: string;
-  todos: Array<{ id: string; text: string; completed: boolean }>;
+  todos: Todo[];
   lastSync: number | null;
 };
+
+export type TodoPrivateContext = Record<string, unknown>;
 
 export type TodoServerContext = {
   public: TodoPublicContext;

@@ -31,10 +31,18 @@ export interface ActorServerMethods<TMachine extends BaseActorKitStateMachine> {
     input: Record<string, unknown>;
   }): void;
   send(event: ClientEventFrom<TMachine> | ServiceEventFrom<TMachine>): void;
-  getSnapshot(caller: Caller): {
+  getSnapshot(
+    caller: Caller,
+    options?: {
+      waitForEvent?: ClientEventFrom<TMachine>;
+      waitForState?: StateValueFrom<TMachine>;
+      timeout?: number;
+      errorOnWaitTimeout?: boolean;
+    }
+  ): Promise<{
     checksum: string;
     snapshot: CallerSnapshotFrom<TMachine>;
-  };
+  }>;
 }
 
 export type ActorServer<TMachine extends AnyActorKitStateMachine> =
@@ -105,15 +113,17 @@ export type ActorKitStateMachine<
   any
 >;
 
-export type BaseActorKitInput = {
+export type BaseActorKitInput<TEnv = EnvWithDurableObjects> = {
   id: string;
   caller: Caller;
-  env: EnvWithDurableObjects;
+  env: TEnv;
   storage: DurableObjectStorage;
 };
 
-export type WithActorKitInput<T extends { [key: string]: unknown }> = T &
-  BaseActorKitInput;
+export type WithActorKitInput<
+  TInputProps extends { [key: string]: unknown },
+  TEnv extends EnvWithDurableObjects
+> = TInputProps & BaseActorKitInput<TEnv>;
 
 export type AnyActorKitStateMachine = ActorKitStateMachine<any, any, any>;
 
@@ -124,7 +134,10 @@ type AnyActorKitEvent = (
 ) &
   BaseActorKitEvent<EnvWithDurableObjects>;
 
-type AnyActorKitInput = WithActorKitInput<{ [key: string]: unknown }> & {
+type AnyActorKitInput = WithActorKitInput<
+  { [key: string]: unknown },
+  EnvWithDurableObjects
+> & {
   storage: DurableObjectStorage;
 };
 
@@ -281,3 +294,21 @@ export type ActorKitClient<TMachine extends AnyActorKitStateMachine> = {
     timeoutMs?: number
   ) => Promise<void>;
 };
+
+// First define a helper to extract the event type from a machine
+type ExtractEventType<TMachine> = TMachine extends ActorKitStateMachine<
+  infer TEvent,
+  any,
+  any
+>
+  ? TEvent
+  : never;
+
+// Then extract the env type from the event
+type ExtractEnvType<TEvent> = TEvent extends { env: infer TEnv } ? TEnv : never;
+
+// Finally, our InferEnvFromMachine type that ensures EnvWithDurableObjects
+export type EnvFromMachine<TMachine extends AnyActorKitStateMachine> =
+  ExtractEnvType<ExtractEventType<TMachine>> extends never
+    ? EnvWithDurableObjects
+    : ExtractEnvType<ExtractEventType<TMachine>> & EnvWithDurableObjects;

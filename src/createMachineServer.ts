@@ -6,7 +6,9 @@ import {
   AnyEventObject,
   createActor,
   InputFrom,
+  matchesState,
   SnapshotFrom,
+  StateValueFrom,
   Subscription,
 } from "xstate";
 import { xstateMigrate } from "xstate-migrate";
@@ -21,6 +23,7 @@ import {
   Caller,
   CallerSnapshotFrom,
   ClientEventFrom,
+  EnvFromMachine,
   MachineServerOptions,
   ServiceEventFrom,
   WithActorKitContext,
@@ -57,7 +60,7 @@ export const createMachineServer = <
       | ActorKitSystemEvent
     ) & {
       storage: DurableObjectStorage;
-      env: TEnv;
+      env: EnvFromMachine<TMachine>;
     },
     z.infer<TInputSchema> & {
       id: string;
@@ -65,8 +68,7 @@ export const createMachineServer = <
       storage: DurableObjectStorage;
     },
     WithActorKitContext<any, any, any>
-  >,
-  TEnv extends { ACTOR_KIT_SECRET: string }
+  >
 >({
   machine,
   schemas,
@@ -81,7 +83,7 @@ export const createMachineServer = <
   options?: MachineServerOptions;
 }): new (
   state: DurableObjectState,
-  env: TEnv,
+  env: EnvFromMachine<TMachine>,
   ctx: ExecutionContext
 ) => ActorServer<TMachine> =>
   class MachineServerImpl
@@ -104,14 +106,18 @@ export const createMachineServer = <
     storage: DurableObjectStorage;
     attachments: Map<WebSocket, WebSocketAttachment>;
     subscriptions: Map<WebSocket, Subscription>;
-    env: TEnv;
+    env: EnvFromMachine<TMachine>;
     currentChecksum: string | null = null;
 
     /**
      * Constructor for the MachineServerImpl class.
      * Initializes the server and sets up WebSocket connections.
      */
-    constructor(state: DurableObjectState, env: TEnv, ctx: ExecutionContext) {
+    constructor(
+      state: DurableObjectState,
+      env: EnvFromMachine<TMachine>,
+      ctx: ExecutionContext
+    ) {
       super(state, env);
       this.state = state;
       this.storage = state.storage;
@@ -234,6 +240,18 @@ export const createMachineServer = <
 
       const fullSnapshot = this.actor.getSnapshot();
       const currentChecksum = this.#calculateChecksum(fullSnapshot);
+
+      // Store snapshot in cache with timestamp
+      this.snapshotCache.set(currentChecksum, {
+        snapshot: fullSnapshot,
+        timestamp: Date.now(),
+      });
+
+      // Schedule cleanup for this snapshot
+      this.#scheduleSnapshotCacheCleanup(currentChecksum);
+
+      // Update current checksum
+      this.currentChecksum = currentChecksum;
 
       // Only send updates if the checksum has changed
       if (attachment.lastSentChecksum !== currentChecksum) {
@@ -432,24 +450,81 @@ export const createMachineServer = <
      * @param caller The caller requesting the snapshot.
      * @returns An object containing the caller-specific snapshot and a checksum for the full snapshot.
      */
-    getSnapshot(caller: Caller) {
-      assert(this.actor, "Actor is not running");
-      const fullSnapshot = this.actor.getSnapshot();
+    async getSnapshot(
+      caller: Caller,
+      options?: {
+        waitForEvent?: ClientEventFrom<TMachine>;
+        waitForState?: StateValueFrom<TMachine>;
+        timeout?: number;
+        errorOnWaitTimeout?: boolean;
+      }
+    ): Promise<{
+      checksum: string;
+      snapshot: CallerSnapshotFrom<TMachine>;
+    }> {
+      this.#ensureActorRunning();
 
+      if (options?.waitForEvent || options?.waitForState) {
+        const timeoutPromise = new Promise((resolve, reject) => {
+          setTimeout(() => {
+            if (options.errorOnWaitTimeout !== false) {
+              reject(new Error("Timeout waiting for event or state"));
+            } else {
+              resolve(this.#getCurrentSnapshot(caller));
+            }
+          }, options.timeout || 5000);
+        });
+
+        const waitPromise: Promise<{
+          checksum: string;
+          snapshot: CallerSnapshotFrom<TMachine>;
+        }> = new Promise((resolve) => {
+          const sub = this.actor!.subscribe((state) => {
+            if (
+              (options.waitForEvent &&
+                this.#matchesEvent(state, options.waitForEvent)) ||
+              (options.waitForState &&
+                this.#matchesState(state, options.waitForState))
+            ) {
+              sub && sub.unsubscribe();
+              resolve(this.#getCurrentSnapshot(caller));
+            }
+          });
+        });
+
+        return Promise.race([waitPromise, timeoutPromise]) as Promise<{
+          checksum: string;
+          snapshot: CallerSnapshotFrom<TMachine>;
+        }>;
+      }
+
+      // const checksum =
+      return this.#getCurrentSnapshot(caller);
+    }
+
+    #getCurrentSnapshot(caller: Caller) {
+      const fullSnapshot = this.actor!.getSnapshot();
+      const callerSnapshot = this.#createCallerSnapshot(
+        fullSnapshot,
+        caller.id
+      );
       const checksum = this.#calculateChecksum(fullSnapshot);
-      this.snapshotCache.set(checksum, {
-        snapshot: fullSnapshot,
-        timestamp: Date.now(),
-      });
+      return { snapshot: callerSnapshot, checksum };
+    }
 
-      // Schedule cleanup for this checksum
-      this.#scheduleSnapshotCacheCleanup(checksum);
+    #matchesEvent(
+      snapshot: SnapshotFrom<TMachine>,
+      event: ClientEventFrom<TMachine>
+    ): boolean {
+      // todo implement later
+      return true;
+    }
 
-      const snapshot = this.#createCallerSnapshot(fullSnapshot, caller.id);
-      return {
-        snapshot,
-        checksum,
-      };
+    #matchesState(
+      snapshot: SnapshotFrom<TMachine>,
+      stateValue: StateValueFrom<TMachine>
+    ): boolean {
+      return matchesState(stateValue, snapshot);
     }
 
     /**
@@ -585,6 +660,7 @@ export const createMachineServer = <
         id: this.actorId,
         caller: this.initialCaller,
         storage: this.storage,
+        env: this.env,
         ...this.input,
       } as InputFrom<TMachine>;
 

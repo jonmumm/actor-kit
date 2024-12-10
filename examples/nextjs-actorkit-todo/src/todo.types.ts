@@ -1,5 +1,6 @@
 import type {
   ActorKitSystemEvent,
+  BaseActorKitEvent,
   WithActorKitEvent,
   WithActorKitInput,
 } from "actor-kit";
@@ -9,17 +10,20 @@ import {
   TodoInputPropsSchema,
   TodoServiceEventSchema,
 } from "./todo.schemas";
+import { Env } from "./types";
 
 export type TodoClientEvent = z.infer<typeof TodoClientEventSchema>;
 export type TodoServiceEvent = z.infer<typeof TodoServiceEventSchema>;
 export type TodoInputProps = z.infer<typeof TodoInputPropsSchema>;
 
-export type TodoEvent =
+export type TodoEvent = (
   | WithActorKitEvent<TodoClientEvent, "client">
   | WithActorKitEvent<TodoServiceEvent, "service">
-  | ActorKitSystemEvent;
+  | ActorKitSystemEvent
+) &
+  BaseActorKitEvent<Env>;
 
-export type TodoInput = WithActorKitInput<TodoInputProps>;
+export type TodoInput = WithActorKitInput<TodoInputProps, Env>;
 
 export type TodoPrivateContext = {
   lastAccessTime?: number;
