@@ -37,7 +37,7 @@ export const sessionMachine = setup({
   },
   guards: {
     isOwner: ({ context, event }) => {
-      return "caller" in event && context.public.userId === event.caller.id;
+      return context.public.userId === event.caller.id;
     },
   },
 }).createMachine({
