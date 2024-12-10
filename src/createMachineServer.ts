@@ -23,6 +23,7 @@ import {
   Caller,
   CallerSnapshotFrom,
   ClientEventFrom,
+  EnvFromMachine,
   MachineServerOptions,
   ServiceEventFrom,
   WithActorKitContext,
@@ -59,7 +60,7 @@ export const createMachineServer = <
       | ActorKitSystemEvent
     ) & {
       storage: DurableObjectStorage;
-      env: TEnv;
+      env: EnvFromMachine<TMachine>;
     },
     z.infer<TInputSchema> & {
       id: string;
@@ -67,8 +68,7 @@ export const createMachineServer = <
       storage: DurableObjectStorage;
     },
     WithActorKitContext<any, any, any>
-  >,
-  TEnv extends { ACTOR_KIT_SECRET: string }
+  >
 >({
   machine,
   schemas,
@@ -83,7 +83,7 @@ export const createMachineServer = <
   options?: MachineServerOptions;
 }): new (
   state: DurableObjectState,
-  env: TEnv,
+  env: EnvFromMachine<TMachine>,
   ctx: ExecutionContext
 ) => ActorServer<TMachine> =>
   class MachineServerImpl
@@ -106,14 +106,18 @@ export const createMachineServer = <
     storage: DurableObjectStorage;
     attachments: Map<WebSocket, WebSocketAttachment>;
     subscriptions: Map<WebSocket, Subscription>;
-    env: TEnv;
+    env: EnvFromMachine<TMachine>;
     currentChecksum: string | null = null;
 
     /**
      * Constructor for the MachineServerImpl class.
      * Initializes the server and sets up WebSocket connections.
      */
-    constructor(state: DurableObjectState, env: TEnv, ctx: ExecutionContext) {
+    constructor(
+      state: DurableObjectState,
+      env: EnvFromMachine<TMachine>,
+      ctx: ExecutionContext
+    ) {
       super(state, env);
       this.state = state;
       this.storage = state.storage;
@@ -236,6 +240,18 @@ export const createMachineServer = <
 
       const fullSnapshot = this.actor.getSnapshot();
       const currentChecksum = this.#calculateChecksum(fullSnapshot);
+
+      // Store snapshot in cache with timestamp
+      this.snapshotCache.set(currentChecksum, {
+        snapshot: fullSnapshot,
+        timestamp: Date.now(),
+      });
+
+      // Schedule cleanup for this snapshot
+      this.#scheduleSnapshotCacheCleanup(currentChecksum);
+
+      // Update current checksum
+      this.currentChecksum = currentChecksum;
 
       // Only send updates if the checksum has changed
       if (attachment.lastSentChecksum !== currentChecksum) {
@@ -644,6 +660,7 @@ export const createMachineServer = <
         id: this.actorId,
         caller: this.initialCaller,
         storage: this.storage,
+        env: this.env,
         ...this.input,
       } as InputFrom<TMachine>;
 
